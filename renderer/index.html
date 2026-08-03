@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'"
+    />
+    <title>SeMa</title>
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="../node_modules/@xterm/xterm/css/xterm.css" />
+  </head>
+  <body>
+    <div id="app">
+      <aside id="sidebar">
+        <button id="new-btn" type="button" title="新建会话">+</button>
+        <ul id="tabs"></ul>
+      </aside>
+      <div id="sidebar-resizer" title="拖动调整宽度"></div>
+      <main id="term-host">
+        <div id="cli-toolbar" aria-label="分栏打开 CLI">
+          <button
+            id="sidebar-toggle"
+            type="button"
+            title="隐藏侧栏"
+            aria-label="隐藏侧栏"
+            aria-expanded="true"
+          >
+            ◀
+          </button>
+          <div id="cli-toolbar-tools"></div>
+        </div>
+        <div id="term-stage">
+          <div id="toasts" aria-live="polite"></div>
+          <div id="term-columns"></div>
+        </div>
+      </main>
+      <div id="term-ctx" class="term-ctx hidden" role="menu" hidden>
+        <button type="button" data-action="copy" role="menuitem">复制</button>
+        <button type="button" data-action="paste" role="menuitem">粘贴</button>
+        <button type="button" data-action="delete" role="menuitem">删除</button>
+        <button type="button" data-action="selectAll" role="menuitem">全选</button>
+      </div>
+      <div id="cli-modal" class="modal hidden" aria-hidden="true">
+        <div class="modal-card">
+          <div class="modal-title">选择 CLI</div>
+          <ul id="cli-list"></ul>
+          <button id="cli-cancel" type="button">取消</button>
+        </div>
+      </div>
+      <div id="confirm-modal" class="modal hidden" aria-hidden="true">
+        <div class="modal-card">
+          <div class="modal-title" id="confirm-message">确认</div>
+          <div class="modal-actions">
+            <button id="confirm-ok" type="button">关闭</button>
+            <button id="confirm-cancel" type="button">取消</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <script src="../node_modules/@xterm/xterm/lib/xterm.js"></script>
+    <script src="../node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
+    <script src="../ime-anchor.js"></script>
+    <script src="../term-fit-safe.js"></script>
+    <script src="../term-input-recover.js"></script>
+    <script src="../term-focus-handoff.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

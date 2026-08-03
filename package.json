@@ -1,0 +1,21 @@
+{
+  "name": "sema",
+  "productName": "SeMa",
+  "version": "0.1.0",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "postinstall": "node scripts/ensure-pty-permissions.js && node scripts/brand-electron-mac.js",
+    "build:launcher-mac": "bash launcher/mac/build-sema-app.sh",
+    "build:launcher-win": "powershell -ExecutionPolicy Bypass -File launcher/windows/build-sema-exe.ps1"
+  },
+  "devDependencies": {
+    "electron": "^37.2.0"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/xterm": "^5.5.0",
+    "node-pty": "^1.0.0"
+  }
+}
