@@ -2,11 +2,17 @@ const { app, BrowserWindow, ipcMain, dialog, Menu, Tray, nativeImage, shell } = 
 const path = require("path");
 const os = require("os");
 const fs = require("fs");
+const crypto = require("crypto");
 const { ensurePtySpawnHelperExecutable } = require("./pty-permissions");
 const pty = require("node-pty");
 const { detectTools, toolForId, sortToolsByUsage } = require("./cli-detect");
 const { resolveCommand, spawnTarget } = require("./spawn-helpers");
-const { resumeArgsUnchecked, canResume } = require("./resume-detect");
+const {
+  canResume,
+  listSessionIds,
+  pickCreatedSince,
+  resolveResumeSelection,
+} = require("./resume-detect");
 const { launchArgsFor } = require("./trust-args");
 const { clampBadgeCount, badgeDescription } = require("./badge-count");
 const { overlayPngForCount } = require("./badge-overlay");
@@ -333,6 +339,67 @@ function folderName(cwd) {
   return base || "home";
 }
 
+/** In-flight ↻ claims so two unbound panes same cwd do not both pick newest. */
+const resumeClaimsByKey = new Map();
+/** @type {Map<string, { cliId: string, cwd: string, resumeId: string }>} */
+const sessionResumeClaims = new Map();
+
+function resumeClaimKey(cliId, cwd) {
+  const norm = String(cwd || "")
+    .replace(/\\/g, "/")
+    .replace(/\/+$/, "")
+    .toLowerCase();
+  return `${cliId || ""}\0${norm}`;
+}
+
+function claimedResumeIds(cliId, cwd) {
+  const set = resumeClaimsByKey.get(resumeClaimKey(cliId, cwd));
+  return set ? [...set] : [];
+}
+
+function addResumeClaim(cliId, cwd, id) {
+  if (!id) return;
+  const key = resumeClaimKey(cliId, cwd);
+  let set = resumeClaimsByKey.get(key);
+  if (!set) {
+    set = new Set();
+    resumeClaimsByKey.set(key, set);
+  }
+  set.add(String(id));
+}
+
+function releaseResumeClaim(cliId, cwd, id) {
+  if (!id) return;
+  const set = resumeClaimsByKey.get(resumeClaimKey(cliId, cwd));
+  if (set) set.delete(String(id));
+}
+
+function clearSessionResumeClaim(sessionId) {
+  const prev = sessionResumeClaims.get(sessionId);
+  if (!prev) return;
+  releaseResumeClaim(prev.cliId, prev.cwd, prev.resumeId);
+  sessionResumeClaims.delete(sessionId);
+}
+
+function bindSessionResumeClaim(sessionId, cliId, cwd, resumeId) {
+  clearSessionResumeClaim(sessionId);
+  if (!resumeId) return;
+  addResumeClaim(cliId, cwd, resumeId);
+  sessionResumeClaims.set(sessionId, {
+    cliId,
+    cwd,
+    resumeId: String(resumeId),
+  });
+}
+
+function resolveResumeArgs(cliId, cwd, opts) {
+  const selection = resolveResumeSelection(cliId, cwd, {
+    ...(opts || {}),
+    claimedIds: claimedResumeIds(cliId, cwd),
+  });
+  return selection;
+}
+
 ipcMain.handle("badge:set", async (_evt, payload) => {
   const count =
     payload && typeof payload === "object" && "count" in payload
@@ -412,8 +479,17 @@ ipcMain.handle("session:create", async (_evt, opts) => {
   }
   const id = `s-${++seq}`;
   const label = `${tool.command} · ${folderName(cwd)}`;
-  const wantResume = !!(opts && opts.resume);
-  const resumeArgs = wantResume ? resumeArgsUnchecked(cliId, cwd) : [];
+  // Create is always a blank process. Resume only happens in session:respawn (↻).
+  let launchExtra = [];
+  let assignedSessionId = null;
+  // Pi: optionally pre-allocate id for later ↻ (not used when restoring a bound pane).
+  if (
+    cliId === "pi" &&
+    !(opts && opts.allocateSession === false)
+  ) {
+    assignedSessionId = crypto.randomUUID();
+    launchExtra = ["--session-id", assignedSessionId];
+  }
   const env = {
     ...process.env,
     PYTHONUTF8: "1",
@@ -464,7 +540,8 @@ ipcMain.handle("session:create", async (_evt, opts) => {
   }
 
   try {
-    const first = spawnTarget(tool, launchArgsFor(cliId, resumeArgs));
+    const knownBefore = listSessionIds(cliId, cwd).map((e) => e.id);
+    const first = spawnTarget(tool, launchArgsFor(cliId, launchExtra));
     const proc = pty.spawn(first.file, first.args, {
       name: "xterm-256color",
       cols: 80,
@@ -472,7 +549,8 @@ ipcMain.handle("session:create", async (_evt, opts) => {
       cwd,
       env,
     });
-    bindPty(proc, resumeArgs.length > 0);
+    // Create never resumes — no resume-fallback on exit.
+    bindPty(proc, false);
     const prefs = loadPrefs();
     prefs.last = { cwd, cliId };
     prefs.cliCounts = prefs.cliCounts || {};
@@ -481,7 +559,9 @@ ipcMain.handle("session:create", async (_evt, opts) => {
     return {
       id,
       label,
-      canResume: canResume(cliId, cwd) && !wantResume,
+      canResume: canResume(cliId, cwd) && !assignedSessionId,
+      cliSessionId: assignedSessionId,
+      knownBefore,
     };
   } catch (err) {
     const message = err && err.message ? err.message : String(err);
@@ -501,8 +581,15 @@ ipcMain.handle("session:respawn", async (_evt, opts) => {
   const tool = toolForId(cachedTools, cliId);
   if (!tool) throw new Error(`未找到 CLI: ${cliId}`);
 
-  const wantResume = !!(opts && opts.resume);
-  const resumeArgs = wantResume ? resumeArgsUnchecked(cliId, cwd) : [];
+  const selection = resolveResumeArgs(cliId, cwd, opts);
+  const resumeArgs = selection.args;
+  // Reserve the resolved id for this SeMa session before spawn so a sibling
+  // ↻ in the same cwd cannot pick the same target.
+  if (selection.resolvedId) {
+    bindSessionResumeClaim(id, cliId, cwd, selection.resolvedId);
+  } else {
+    clearSessionResumeClaim(id);
+  }
 
   const env = {
     ...process.env,
@@ -532,6 +619,7 @@ ipcMain.handle("session:respawn", async (_evt, opts) => {
       if (current !== proc) return;
       if (allowResumeFallback) {
         try {
+          clearSessionResumeClaim(id);
           const plain = spawnTarget(tool, launchArgsFor(cliId, []));
           const retry = pty.spawn(plain.file, plain.args, {
             name: "xterm-256color",
@@ -572,8 +660,13 @@ ipcMain.handle("session:respawn", async (_evt, opts) => {
       env,
     });
     attach(proc, resumeArgs.length > 0);
-    return { ok: true };
+    return {
+      ok: true,
+      usedBound: selection.usedBound,
+      cliSessionId: selection.resolvedId,
+    };
   } catch (err) {
+    clearSessionResumeClaim(id);
     if (resumeArgs.length) {
       try {
         const plain = spawnTarget(tool, launchArgsFor(cliId, []));
@@ -591,7 +684,7 @@ ipcMain.handle("session:respawn", async (_evt, opts) => {
             data: "\r\n[SeMa] 续聊失败，已打开新会话。\r\n",
           });
         }
-        return { ok: true, fallback: true };
+        return { ok: true, fallback: true, usedBound: false, cliSessionId: null };
       } catch (_) {
         /* fall through */
       }
@@ -603,8 +696,32 @@ ipcMain.handle("session:respawn", async (_evt, opts) => {
   }
 });
 
+ipcMain.handle("session:discoverCliSession", async (_evt, opts) => {
+  const cliId = opts && opts.cliId;
+  const cwd = (opts && opts.cwd) || "";
+  const exclude = Array.isArray(opts && opts.excludeIds)
+    ? opts.excludeIds.filter(Boolean).map(String)
+    : [];
+  const knownBefore = Array.isArray(opts && opts.knownBefore)
+    ? opts.knownBefore.filter(Boolean).map(String)
+    : [];
+  if (!cliId || cliId === "terminal" || !cwd) {
+    return { cliSessionId: null };
+  }
+  // Session files often appear only after the first user turn — wait longer.
+  const deadline = Date.now() + 120000;
+  while (Date.now() < deadline) {
+    const entries = listSessionIds(cliId, cwd);
+    const picked = pickCreatedSince(entries, knownBefore, exclude);
+    if (picked) return { cliSessionId: picked };
+    await new Promise((r) => setTimeout(r, 400));
+  }
+  return { cliSessionId: null };
+});
+
 ipcMain.handle("session:kill", async (_evt, id) => {
   const proc = sessions.get(id);
+  clearSessionResumeClaim(id);
   if (!proc) return;
   sessions.delete(id);
   try {

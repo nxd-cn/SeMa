@@ -9,6 +9,10 @@ const {
   UNDO_PAYLOAD,
 } = require("./clipboard-keys");
 const { shouldSuppressForImeComposition } = require("./ime-composition-keys");
+const {
+  chatSubmitKeyAction,
+  dataLooksLikeSubmit,
+} = require("./continue-dismiss-keys");
 
 const isMac = process.platform === "darwin";
 const isWin = process.platform === "win32";
@@ -18,6 +22,8 @@ contextBridge.exposeInMainWorld("tui", {
   isWin,
   createSession: (opts) => ipcRenderer.invoke("session:create", opts),
   respawnSession: (opts) => ipcRenderer.invoke("session:respawn", opts),
+  discoverCliSession: (opts) =>
+    ipcRenderer.invoke("session:discoverCliSession", opts),
   killSession: (id) => ipcRenderer.invoke("session:kill", id),
   write: (id, data) => ipcRenderer.send("session:write", id, data),
   resize: (id, cols, rows) => ipcRenderer.send("session:resize", id, cols, rows),
@@ -40,6 +46,8 @@ contextBridge.exposeInMainWorld("tui", {
   undoAction: (ev) => undoAction(ev, { isMac }),
   UNDO_PAYLOAD,
   shouldSuppressForImeComposition: (ev) => shouldSuppressForImeComposition(ev),
+  chatSubmitKeyAction: (ev) => chatSubmitKeyAction(ev),
+  dataLooksLikeSubmit: (data) => dataLooksLikeSubmit(data),
   onData: (cb) => {
     const handler = (_e, payload) => cb(payload);
     ipcRenderer.on("session:data", handler);

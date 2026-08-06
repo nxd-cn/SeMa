@@ -30,7 +30,7 @@
   /** @type {Map<string, { el: HTMLElement, timer: ReturnType<typeof setTimeout> }>} */
   const toasts = new Map();
 
-  /** @type {Map<string, { term: any, fit: any, ime?: { detach: () => void }, host?: HTMLElement, resizeObserver?: ResizeObserver, pane: HTMLElement, body: HTMLElement, cwd: string, cliId: string, groupId: string, flex: number, detachBtn?: HTMLButtonElement, continueBtn?: HTMLButtonElement|null, activityArmed?: boolean }>} */
+  /** @type {Map<string, { term: any, fit: any, ime?: { detach: () => void }, host?: HTMLElement, resizeObserver?: ResizeObserver, pane: HTMLElement, body: HTMLElement, cwd: string, cliId: string, cliSessionId?: string|null, knownBefore?: string[], bindInFlight?: boolean, groupId: string, flex: number, detachBtn?: HTMLButtonElement, continueBtn?: HTMLButtonElement|null, continueDismissed?: boolean, resumeOfferPending?: boolean, activityArmed?: boolean }>} */
   const views = new Map();
   const termCtxEl = document.getElementById("term-ctx");
   let termCtxPaneId = null;
@@ -80,7 +80,7 @@
         window.tui.clipboardWrite(v.term.getSelection());
       } else if (action === "paste") {
         const text = window.tui.clipboardRead();
-        if (text) window.tui.write(id, text);
+        if (text) writeToSession(id, text);
       } else if (action === "delete") {
         deleteTermSelection(id, v.term);
       } else if (action === "selectAll") {
@@ -150,9 +150,118 @@
 
   function hideContinue(id) {
     const v = views.get(id);
-    if (!v || !v.continueBtn) return;
-    v.continueBtn.remove();
-    v.continueBtn = null;
+    if (!v) return;
+    v.continueDismissed = true;
+    if (v.continueBtn) {
+      v.continueBtn.remove();
+      v.continueBtn = null;
+    }
+    if (v.pane) {
+      for (const el of v.pane.querySelectorAll(".pane-continue")) {
+        el.remove();
+      }
+    }
+  }
+
+  /** User pressed Enter / submitted — arm pulse; dismiss ↻ if still offering resume. */
+  function noticeUserStartedChat(sessionId) {
+    const v = views.get(sessionId);
+    if (!v) return;
+    armActivity(sessionId);
+    const abandonResumeOffer = !!v.resumeOfferPending;
+    hideContinue(sessionId);
+    if (abandonResumeOffer) {
+      v.resumeOfferPending = false;
+      // Skipped ↻: drop prior resume target so discover can bind this new run.
+      if (v.cliSessionId) {
+        v.cliSessionId = null;
+        void saveSplit();
+      }
+      void bindCliSession(sessionId);
+    } else if (!v.cliSessionId) {
+      void bindCliSession(sessionId);
+    }
+  }
+
+  function dataLooksLikeSubmit(data) {
+    if (window.tui && typeof window.tui.dataLooksLikeSubmit === "function") {
+      return window.tui.dataLooksLikeSubmit(data);
+    }
+    if (data == null) return false;
+    const s = typeof data === "string" ? data : String(data);
+    return (
+      s === "\r" ||
+      s === "\n" ||
+      s.indexOf("\r") !== -1 ||
+      s.indexOf("\n") !== -1
+    );
+  }
+
+  function writeToSession(sessionId, data) {
+    if (dataLooksLikeSubmit(data)) noticeUserStartedChat(sessionId);
+    window.tui.write(sessionId, data);
+  }
+
+  function ensureContinueButton(sessionId) {
+    const v = views.get(sessionId);
+    if (!v || !v.cliId || v.cliId === "terminal") return;
+    if (v.continueDismissed || v.continueBtn) return;
+    const actions = v.pane && v.pane.querySelector(".pane-actions");
+    if (!actions) return;
+    const continueBtn = document.createElement("button");
+    continueBtn.type = "button";
+    continueBtn.className = "pane-continue";
+    continueBtn.title = "继续上次会话";
+    continueBtn.textContent = "↻";
+    continueBtn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      hideContinue(sessionId);
+      const cur = views.get(sessionId);
+      if (!cur) return;
+      cur.resumeOfferPending = false;
+      try {
+        cur.term.reset();
+        const bound = cur.cliSessionId || undefined;
+        const result = await window.tui.respawnSession({
+          id: sessionId,
+          cwd: cur.cwd,
+          cliId: cur.cliId,
+          resume: true,
+          cliSessionId: bound,
+          excludeIds: usedCliSessionIds(cur.cwd, sessionId),
+        });
+        if (result && result.fallback) {
+          cur.cliSessionId = null;
+          await saveSplit();
+        } else if (result && result.cliSessionId) {
+          cur.cliSessionId = result.cliSessionId;
+          await saveSplit();
+        } else if (result && result.usedBound === false) {
+          cur.cliSessionId = null;
+          await saveSplit();
+          void bindCliSession(sessionId);
+        }
+      } catch (_) {
+        try {
+          cur.term.reset();
+          cur.cliSessionId = null;
+          await saveSplit();
+          await window.tui.respawnSession({
+            id: sessionId,
+            cwd: cur.cwd,
+            cliId: cur.cliId,
+            resume: false,
+          });
+        } catch (err) {
+          alert(err && err.message ? err.message : String(err));
+        }
+      }
+      requestAnimationFrame(() => fitPane(sessionId));
+    });
+    const detachBtn = actions.querySelector(".pane-detach");
+    if (detachBtn) actions.insertBefore(continueBtn, detachBtn);
+    else actions.appendChild(continueBtn);
+    v.continueBtn = continueBtn;
   }
 
   function dismissToast(groupId) {
@@ -539,7 +648,9 @@
           saved.push({
             panes: ids.map((id) => {
               const v = views.get(id);
-              return { cwd: v.cwd, cliId: v.cliId, flex: v.flex };
+              const pane = { cwd: v.cwd, cliId: v.cliId, flex: v.flex };
+              if (v.cliSessionId) pane.cliSessionId = v.cliSessionId;
+              return pane;
             }),
             focus: Math.max(0, ids.indexOf(focusId)),
           });
@@ -556,6 +667,62 @@
     };
     saveSplitTail = saveSplitTail.then(run, run);
     return saveSplitTail;
+  }
+
+  function cwdKey(cwd) {
+    return String(cwd || "")
+      .replace(/\\/g, "/")
+      .replace(/\/+$/, "")
+      .toLowerCase();
+  }
+
+  function sameCwd(a, b) {
+    return cwdKey(a) === cwdKey(b);
+  }
+
+  function usedCliSessionIds(cwd, exceptSessionId) {
+    const used = new Set();
+    for (const [sid, v] of views) {
+      if (exceptSessionId && sid === exceptSessionId) continue;
+      if (!v.cliSessionId) continue;
+      if (cwd && !sameCwd(v.cwd, cwd)) continue;
+      used.add(v.cliSessionId);
+    }
+    return [...used];
+  }
+
+  /** Bind this pane to the CLI session it created (not the cwd's newest). */
+  async function bindCliSession(sessionId) {
+    const v = views.get(sessionId);
+    if (!v || v.cliId === "terminal" || v.cliSessionId || v.bindInFlight) {
+      return;
+    }
+    v.bindInFlight = true;
+    try {
+      // Retry if a sibling pane claimed the same discover result mid-flight.
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const found = await window.tui.discoverCliSession({
+          cliId: v.cliId,
+          cwd: v.cwd,
+          excludeIds: usedCliSessionIds(v.cwd, sessionId),
+          knownBefore: Array.isArray(v.knownBefore) ? v.knownBefore : [],
+        });
+        const v2 = views.get(sessionId);
+        if (!v2 || v2.cliSessionId) return;
+        if (!found || !found.cliSessionId) return;
+        if (usedCliSessionIds(v2.cwd, sessionId).includes(found.cliSessionId)) {
+          continue;
+        }
+        v2.cliSessionId = found.cliSessionId;
+        await saveSplit();
+        return;
+      }
+    } catch (_) {
+      /* best-effort */
+    } finally {
+      const v3 = views.get(sessionId);
+      if (v3) v3.bindInFlight = false;
+    }
   }
 
   function clearResizers() {
@@ -854,13 +1021,24 @@
       opts && typeof opts.flex === "number" && opts.flex > 0 ? opts.flex : 1;
     let result;
     try {
-      result = await window.tui.createSession({ cwd, cliId });
+      // Always blank on open/restore. Pass allocateSession:false when layout
+      // already has a cliSessionId (restart) so Pi does not get a new --session-id.
+      result = await window.tui.createSession({
+        cwd,
+        cliId,
+        allocateSession: !(opts && opts.cliSessionId),
+      });
     } catch (err) {
       if (!silent) alert(err && err.message ? err.message : String(err));
       return null;
     }
-    const { id, canResume } = result;
-
+    const { id, canResume, knownBefore, cliSessionId: createdCliSessionId } =
+      result;
+    const boundFromLayout =
+      opts && opts.cliSessionId ? String(opts.cliSessionId) : null;
+    const boundId =
+      boundFromLayout ||
+      (createdCliSessionId ? String(createdCliSessionId) : null);
     ensureGroup(groupId);
 
     const pane = document.createElement("div");
@@ -874,33 +1052,6 @@
     cwdEl.title = cwd;
     const actions = document.createElement("div");
     actions.className = "pane-actions";
-    let continueBtn = null;
-    if (canResume) {
-      continueBtn = document.createElement("button");
-      continueBtn.type = "button";
-      continueBtn.className = "pane-continue";
-      continueBtn.title = "继续上次会话";
-      continueBtn.textContent = "↻";
-      continueBtn.addEventListener("click", async (e) => {
-        e.stopPropagation();
-        hideContinue(id);
-        const v = views.get(id);
-        if (!v) return;
-        try {
-          v.term.reset();
-          await window.tui.respawnSession({ id, cwd, cliId, resume: true });
-        } catch (_) {
-          try {
-            v.term.reset();
-            await window.tui.respawnSession({ id, cwd, cliId, resume: false });
-          } catch (err) {
-            alert(err && err.message ? err.message : String(err));
-          }
-        }
-        requestAnimationFrame(() => fitPane(id));
-      });
-      actions.appendChild(continueBtn);
-    }
     const detachBtn = document.createElement("button");
     detachBtn.type = "button";
     detachBtn.className = "pane-detach";
@@ -994,16 +1145,29 @@
         if (activeId !== id) setActive(id);
       });
     }
-    // Only hide continue / arm activity after the user starts a chat (Enter).
+    // Hide ↻ / arm activity when the user starts chatting (Enter), including
+    // paths that bypass term.onData (paste / custom key writes).
     term.onData((data) => {
-      if (data === "\r" || data === "\n" || data.indexOf("\r") !== -1) {
-        hideContinue(id);
-        armActivity(id);
-      }
-      window.tui.write(id, data);
+      writeToSession(id, data);
     });
 
     term.attachCustomKeyEventHandler((ev) => {
+      // Enter dismisses ↻ on both Win and Mac (incl. Numpad / Cmd+Enter).
+      // Skip CJK IME composition confirm — especially important on macOS.
+      if (
+        window.tui.chatSubmitKeyAction &&
+        window.tui.chatSubmitKeyAction({
+          type: ev.type,
+          key: ev.key,
+          code: ev.code,
+          keyCode: ev.keyCode,
+          which: ev.which,
+          isComposing: ev.isComposing,
+        }) === "submit"
+      ) {
+        noticeUserStartedChat(id);
+      }
+
       // CapsLock must not reach CompositionHelper during CJK IME (macOS
       // Chinese→English toggle); otherwise xterm 5.5 double-sends preedit.
       if (
@@ -1092,7 +1256,7 @@
         ev.preventDefault();
         ev.stopPropagation();
         const text = window.tui.clipboardRead();
-        if (text) window.tui.write(id, text);
+        if (text) writeToSession(id, text);
         return false;
       }
       return true;
@@ -1119,16 +1283,32 @@
       body,
       cwd,
       cliId,
+      cliSessionId: boundId,
+      knownBefore: Array.isArray(knownBefore)
+        ? knownBefore.map(String)
+        : [],
+      bindInFlight: false,
       groupId,
       flex,
       detachBtn,
-      continueBtn,
+      continueBtn: null,
+      continueDismissed: false,
+      resumeOfferPending: false,
       activityArmed: false,
     };
     applyFlex(view);
     views.set(id, view);
     refreshGroupLabel(groupId);
     setActive(id, { skipSave });
+    // Show ↻ only when there is a prior chat to resume (layout-bound or cwd
+    // history). Fresh Pi --session-id is this pane's new session, not a resume offer.
+    if (cliId !== "terminal" && (boundFromLayout || canResume)) {
+      view.resumeOfferPending = true;
+      ensureContinueButton(id);
+    }
+    if (cliId !== "terminal" && !view.cliSessionId) {
+      void bindCliSession(id);
+    }
     return id;
   }
 
@@ -1395,6 +1575,7 @@
           groupId,
           flex,
           skipSave: true,
+          cliSessionId: p.cliSessionId || undefined,
         });
         if (!id) continue;
         opened.push(id);
