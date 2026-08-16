@@ -3,19 +3,34 @@
   "productName": "SeMa",
   "version": "0.1.0",
   "private": true,
-  "main": "main.js",
+  "type": "module",
   "scripts": {
-    "start": "electron .",
-    "postinstall": "node scripts/ensure-pty-permissions.js && node scripts/brand-electron-mac.js",
-    "build:launcher-mac": "bash launcher/mac/build-sema-app.sh",
-    "build:launcher-win": "powershell -ExecutionPolicy Bypass -File launcher/windows/build-sema-exe.ps1"
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "devDependencies": {
-    "electron": "^37.2.0"
+    "@tauri-apps/cli": "^2.11.4",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^6.0.5",
+    "typescript": "^5.9.3",
+    "vite": "^8.2.1",
+    "vitest": "^4.1.10"
   },
   "dependencies": {
+    "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/plugin-clipboard-manager": "^2.3.2",
+    "@tauri-apps/plugin-dialog": "^2.7.2",
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/xterm": "^5.5.0",
-    "node-pty": "^1.0.0"
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "zustand": "^5.0.14"
   }
 }

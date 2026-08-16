@@ -2,7 +2,7 @@
 
 跨平台（**Windows / macOS**）桌面应用：在一个窗口里管理多个 AI CLI 会话。
 
-基于 Electron + xterm.js + node-pty，按项目目录打开：
+基于 **Tauri 2 + Rust + React/TypeScript + xterm.js + portable-pty**，按项目目录打开：
 
 - Claude Code
 - Cursor Agent
@@ -11,72 +11,91 @@
 - Gemini
 - Pi
 
-支持分栏、续聊、侧栏折叠、活跃脉冲与未读提示。
+支持分栏、续聊、侧栏折叠、活跃脉冲、未读提示，以及只读 Git 分支底栏。
 
 > 开发约定见 [AGENTS.md](./AGENTS.md)。English: [README.en.md](./README.en.md)。
 
 ## 环境要求
 
 - Node.js（建议 LTS）
+- Rust（stable，含 Cargo）— 见 [https://rustup.rs](https://rustup.rs)
 - 已安装并配置好 PATH 的 AI CLI（按需安装，未检测到的不会出现在列表中）
-- Windows 或 macOS
+- 可选：本机 `git`（用于会话底栏显示当前分支；未安装则显示 `~`）
+- Windows 或 macOS（打包还需各平台系统依赖，见 [Tauri 文档](https://v2.tauri.app/start/prerequisites/)）
 
 ## 安装与启动
 
 ```bash
 npm install
-npm start
+npm run tauri:dev
 ```
 
-### 便捷启动（无需每次敲命令）
-
-见 [launcher/README.md](./launcher/README.md)：macOS 用 `launcher/mac/SeMa.app`（可拖进 Dock）；Windows 用 `launcher/windows/SeMa.vbs`，并可用 `launcher/windows/install-shortcut.ps1` 生成桌面/开始菜单快捷方式。
-
-`postinstall` 会执行 `electron-rebuild`，用于对齐 `node-pty` 与 Electron ABI。若 Mac 上仍启动失败，可手动执行：
+### 打包客户端
 
 ```bash
-npx @electron/rebuild
+npm run tauri:build
 ```
 
-**注意：** 修改主进程（如 `main.js`）后需完全退出应用再 `npm start`，仅刷新渲染进程不够。当前仓库**未提供打包安装脚本**，以 `electron .` 开发运行。
+产物位于 `src-tauri/target/release/bundle/`：
+
+- macOS：`.app` 与 `.dmg`
+- Windows：NSIS `.exe`（在 Windows 主机上构建）
 
 ## 使用说明
 
-1. 点击左侧 **+**，选择项目目录与 CLI，打开会话。
-2. 顶部工具栏：
-   - 最左 **◀ / ☰**：折叠或展开左侧会话列表（右侧终端保持）。
-   - 右侧 CLI 按钮：在当前焦点栏的目录 / 组内再开一列。
-3. 栏顶：
-   - **↻**：探测到该目录历史时可续聊（失败则回退新会话）。
-   - **⤢**：同分栏时可将当前栏独立为新会话。
-4. 非当前会话组有回复时：侧栏蓝点未读 + 右下角 Toast；点击可清除。
+### 新建与侧栏
+
+1. **新建会话**：点 **+**，选择项目目录与 CLI。  
+   - macOS：`+` 在窗口顶栏（与红绿灯同一行）  
+   - Windows：`+` 在左侧栏顶部  
+2. **折叠侧栏**：◀ / ☰（Mac 在顶栏，Win 在内容区工具栏最左）。  
+3. **CLI 快捷按钮**：在当前焦点栏的目录 / 组内再开一列（无会话时禁用）。
+
+### 快捷键（仅 SeMa 窗口在前台时生效）
+
+| 操作 | macOS | Windows |
+|------|--------|---------|
+| 新建会话 | `⌘⇧N` | `Ctrl+Shift+N` |
+| 显隐侧栏 | `⌘⇧B` | `Ctrl+Shift+B` |
+
+后台时不会触发（非系统全局热键）。
+
+### 会话栏
+
+- 栏顶：路径；**↻** 续聊（有历史时）；**⤢** 同分栏时独立为新会话；**×** 关闭。  
+- 栏底：只读 Git 分支（有则显示图标+分支名，否则 `~`）。不提供切分支。  
+- 非当前组有回复：侧栏蓝点未读 + Toast。
 
 默认打开的是**新会话**，不会自动续聊。
+
+### macOS 顶栏与绿钮
+
+- 顶栏与红绿灯对齐（Overlay）；侧栏只保留会话 tab。  
+- 绿色按钮：铺满屏幕并隐藏菜单栏/Dock，红绿灯仍留在顶栏；再点一次恢复进入前的窗口大小（不是系统 Spaces 全屏，避免红绿灯藏进顶部热区）。
 
 ## 数据目录
 
 | 用途 | Windows | macOS |
 |------|---------|--------|
-| SeMa 配置与缓存 | `%APPDATA%\sema\` | `~/Library/Application Support/sema/` |
+| SeMa 配置与缓存 | `%APPDATA%\com.sema.app\` | `~/Library/Application Support/com.sema.app/` |
 | 各 CLI 会话内容 | 由对应 CLI 自行存储（SeMa 不存 transcript） | 同左 |
 
 ## 架构概览
 
-| 层 | 文件 | 职责 |
+| 层 | 路径 | 职责 |
 |----|------|------|
-| Main | `main.js` | 窗口、偏好、CLI 探测、PTY、IPC |
-| Preload | `preload.js` | `window.tui.*` |
-| Renderer | `renderer/` | 侧栏、分栏、工具栏、续聊与未读 UI |
-| Detect / Spawn / Resume | `cli-detect.js`、`spawn-helpers.js`、`resume-detect.js` | 探测、启动、续聊参数 |
+| UI | `src/` | React 侧栏、分栏、顶栏/工具栏、分支底栏、xterm |
+| API | `src/api/tui.ts` | Tauri invoke / events |
+| Rust | `src-tauri/` | PTY、CLI 探测、续聊、git 分支、prefs、打包 |
+
+图标在 `src-tauri/icons/`；换标：`npx tauri icon <源图>` 后清理多余 Store/移动端尺寸再提交。
 
 ## 平台说明
 
-Windows 与 macOS **都要支持**，且修一边时**不能影响另一边**（PATH、`where`/`which`、Windows shim、`cmd.exe`、路径分隔符等按平台分支）。细节见 [AGENTS.md](./AGENTS.md)。
+Windows 与 macOS **都要支持**，且修一边时**不能影响另一边**。细节见 [AGENTS.md](./AGENTS.md)。
 
 ## 参与贡献
 
-1. Fork 本仓库并创建分支
-2. 小步改动；改探测 / spawn / 续聊时注意 Windows 与 macOS 两边路径
-3. 提交说明写清原因；提 Pull Request
-
-设计稿与实现计划：`docs/superpowers/specs/`、`docs/superpowers/plans/`。
+1. Fork 本仓库并创建分支  
+2. 小步改动；改探测 / spawn / 续聊时注意 Windows 与 macOS 两边路径  
+3. 提交说明写清原因；提 Pull Request  
