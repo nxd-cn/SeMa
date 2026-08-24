@@ -106,9 +106,7 @@ pub fn path_variants(cwd: &str) -> Vec<String> {
 }
 
 pub fn normalize_dir_key(p: &str) -> String {
-    p.replace('\\', "/")
-        .trim_end_matches('/')
-        .to_lowercase()
+    p.replace('\\', "/").trim_end_matches('/').to_lowercase()
 }
 
 pub fn directory_match_keys(cwd: &str) -> Vec<String> {
@@ -126,9 +124,7 @@ pub fn directory_match_keys(cwd: &str) -> Vec<String> {
 pub fn home_or(home_dir: Option<&Path>) -> PathBuf {
     home_dir
         .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| {
-            dirs_home().unwrap_or_else(|| PathBuf::from("."))
-        })
+        .unwrap_or_else(|| dirs_home().unwrap_or_else(|| PathBuf::from(".")))
 }
 
 fn dirs_home() -> Option<PathBuf> {
@@ -155,10 +151,7 @@ mod tests {
 
     #[test]
     fn normalize_dir_key_strips_slash_and_lowercases() {
-        assert_eq!(
-            normalize_dir_key(r"C:\Users\Foo\"),
-            "c:/users/foo"
-        );
+        assert_eq!(normalize_dir_key(r"C:\Users\Foo\"), "c:/users/foo");
         assert_eq!(normalize_dir_key("/Var/Folders/x/"), "/var/folders/x");
     }
 

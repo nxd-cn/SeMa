@@ -95,12 +95,7 @@ pub fn list_cursor_session_ids(cwd: &str, home_dir: Option<&Path>) -> Vec<Sessio
     let mut roots = Vec::new();
     for hash in &hashes {
         roots.push(home.join(".cursor").join("chats").join(hash));
-        roots.push(
-            home.join(".config")
-                .join("cursor")
-                .join("chats")
-                .join(hash),
-        );
+        roots.push(home.join(".config").join("cursor").join("chats").join(hash));
     }
 
     let mut out = Vec::new();

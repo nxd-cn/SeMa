@@ -30,6 +30,11 @@ const CATALOG: &[CatalogEntry] = &[
         candidates: &["opencode"],
     },
     CatalogEntry {
+        id: "kimi",
+        label: "Kimi Code",
+        candidates: &["kimi"],
+    },
+    CatalogEntry {
         id: "cursor",
         label: "Cursor Agent",
         candidates: &["cursor-agent", "cursor"],

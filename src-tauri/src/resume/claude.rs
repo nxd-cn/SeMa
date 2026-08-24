@@ -12,13 +12,7 @@ use super::types::SessionEntry;
 pub fn encode_claude_project_id(cwd: &str) -> String {
     path_to_string(&path_resolve(cwd))
         .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() {
-                c
-            } else {
-                '-'
-            }
-        })
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
         .collect()
 }
 
@@ -28,13 +22,7 @@ pub fn claude_project_ids(cwd: &str) -> Vec<String> {
     for p in cwd_path_candidates(cwd) {
         let id: String = p
             .chars()
-            .map(|c| {
-                if c.is_ascii_alphanumeric() {
-                    c
-                } else {
-                    '-'
-                }
-            })
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
             .collect();
         if id.is_empty() {
             continue;

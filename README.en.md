@@ -10,6 +10,7 @@ Built with **Tauri 2 + Rust + React/TypeScript + xterm.js + portable-pty**. Open
 - Codex
 - Gemini
 - Pi
+- Kimi Code
 
 Supports split panes, resume, sidebar collapse, activity pulse, unread toasts, and a read-only Git branch footer.
 
@@ -46,7 +47,10 @@ Artifacts land under `src-tauri/target/release/bundle/` (macOS `.app`/`.dmg`; Wi
    - macOS: **+** lives in the overlay title bar (same row as traffic lights)  
    - Windows: **+** is at the top of the sidebar  
 2. **Collapse sidebar**: ◀ / ☰ (title bar on Mac; content toolbar on Windows).  
-3. **CLI quick buttons**: open another pane in the focused group / cwd (disabled when there are no panes).
+3. **CLI quick buttons**: open another pane in the focused group / cwd (disabled when there are no panes).  
+4. **Reorder tabs**: drag a tab to the **top or bottom edge** of another tab to reorder; order is saved and restored on next launch.  
+5. **Merge panes**: drop a tab on the **middle** of another tab to merge into one split group.  
+6. **Rename tab**: double-click a sidebar tab to edit its label; clear the field to restore the folder name.
 
 ### Shortcuts (only while SeMa is the focused window)
 

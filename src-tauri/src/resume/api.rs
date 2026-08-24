@@ -8,6 +8,7 @@ use super::claude::{has_claude_session, list_claude_session_ids};
 use super::codex::{has_codex_session, list_codex_session_ids};
 use super::cursor::list_cursor_session_ids;
 use super::gemini::{has_gemini_session, list_gemini_session_ids};
+use super::kimi::{has_kimi_session, kimi_resume_args, list_kimi_session_ids};
 use super::opencode::{has_opencode_session, list_opencode_session_ids, opencode_resume_args};
 use super::pi::{has_pi_session, list_pi_session_ids};
 use super::types::{ResumeOpts, ResumeSelection, SessionEntry};
@@ -18,6 +19,7 @@ pub fn can_resume(cli_id: &str, cwd: &str, home_dir: Option<&Path>) -> bool {
         // Cursor chats are per workspace hash — do not use global ~/.cursor presence.
         "cursor" => !list_cursor_session_ids(cwd, home_dir).is_empty(),
         "opencode" => has_opencode_session(cwd, home_dir),
+        "kimi" => has_kimi_session(cwd, home_dir),
         "pi" => has_pi_session(cwd, home_dir),
         "codex" => has_codex_session(cwd, home_dir),
         "gemini" => has_gemini_session(cwd, home_dir),
@@ -35,6 +37,9 @@ pub fn resume_args_for(cli_id: &str, cwd: &str, home_dir: Option<&Path>) -> Vec<
     if cli_id == "opencode" {
         return opencode_resume_args(cwd, home_dir);
     }
+    if cli_id == "kimi" {
+        return kimi_resume_args(cwd, home_dir);
+    }
     resume_args_unchecked(cli_id, cwd, home_dir)
 }
 
@@ -44,6 +49,7 @@ pub fn list_session_ids(cli_id: &str, cwd: &str, home_dir: Option<&Path>) -> Vec
         "cursor" => list_cursor_session_ids(cwd, home_dir),
         "pi" => list_pi_session_ids(cwd, home_dir),
         "opencode" => list_opencode_session_ids(cwd, home_dir),
+        "kimi" => list_kimi_session_ids(cwd, home_dir),
         "codex" => list_codex_session_ids(cwd, home_dir),
         "gemini" => list_gemini_session_ids(cwd, home_dir),
         _ => Vec::new(),
@@ -258,11 +264,7 @@ mod tests {
         );
         // Sibling owns the newest — stay on our older binding.
         assert_eq!(
-            follow_rotated_session(
-                &entries,
-                "old-bound",
-                &["new-after-clear".into()]
-            ),
+            follow_rotated_session(&entries, "old-bound", &["new-after-clear".into()]),
             None
         );
         assert_eq!(follow_rotated_session(&entries, "", &[]), None);
@@ -280,10 +282,7 @@ mod tests {
                 mtime_ms: 1.0,
             },
         ];
-        assert_eq!(
-            pick_created_since(&entries, &[], &[]).as_deref(),
-            Some("A")
-        );
+        assert_eq!(pick_created_since(&entries, &[], &[]).as_deref(), Some("A"));
         assert_eq!(
             pick_created_since(&entries, &["A".into()], &[]).as_deref(),
             Some("B")

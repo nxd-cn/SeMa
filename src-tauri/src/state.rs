@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use parking_lot::Mutex;
@@ -10,6 +11,8 @@ pub struct AppState {
     pub tools: Mutex<Vec<ToolInfo>>,
     pub pty: Arc<PtyState>,
     pub claims: Mutex<ClaimState>,
+    /// pane id -> child webview label (`pane-wv-...`)
+    pub pane_webviews: Mutex<HashMap<String, String>>,
 }
 
 impl Default for AppState {
@@ -18,6 +21,7 @@ impl Default for AppState {
             tools: Mutex::new(Vec::new()),
             pty: Arc::new(PtyState::default()),
             claims: Mutex::new(ClaimState::default()),
+            pane_webviews: Mutex::new(HashMap::new()),
         }
     }
 }

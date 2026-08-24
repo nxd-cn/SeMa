@@ -48,6 +48,10 @@ export type CreateResult = {
   knownBefore?: string[];
 };
 
+export type DocArtifact = { path: string; label: string; mtimeMs?: number };
+export type LinkArtifact = { url: string; label?: string };
+export type ArtifactsResult = { docs: DocArtifact[]; links: LinkArtifact[] };
+
 export const tui = {
   isMac,
   isWin,
@@ -123,6 +127,47 @@ export const tui = {
   focusWindow: () => invoke<void>("window_focus"),
   setUnreadBadge: (count: number) =>
     invoke<void>("badge_set", { count: Number(count) || 0 }),
+  sessionArtifacts: (args: {
+    cliId: string;
+    cwd: string;
+    cliSessionId?: string | null;
+  }) =>
+    invoke<ArtifactsResult>("session_artifacts", {
+      cliId: args.cliId,
+      cwd: args.cwd,
+      cliSessionId: args.cliSessionId ?? null,
+    }).catch(() => ({ docs: [], links: [] })),
+  openExternal: (target: string) =>
+    invoke<void>("open_external", { target }),
+  readTextFile: (args: { path: string; maxBytes?: number }) =>
+    invoke<string>("read_text_file", {
+      path: args.path,
+      maxBytes: args.maxBytes ?? null,
+    }),
+  writeTextFile: (args: { path: string; contents: string }) =>
+    invoke<void>("write_text_file", {
+      path: args.path,
+      contents: args.contents,
+    }),
+  paneWebviewOpen: (args: {
+    id: string;
+    url: string;
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+  }) => invoke<void>("pane_webview_open", args),
+  paneWebviewSetBounds: (args: {
+    id: string;
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+  }) => invoke<void>("pane_webview_set_bounds", args),
+  paneWebviewSetVisible: (args: { id: string; visible: boolean }) =>
+    invoke<void>("pane_webview_set_visible", args),
+  paneWebviewClose: (id: string) =>
+    invoke<void>("pane_webview_close", { id }),
   /** Current git branch for cwd, or `~` when not a repo / git missing / errors. */
   gitBranch: async (cwd: string) => {
     try {

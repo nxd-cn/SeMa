@@ -5,9 +5,9 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, OpenFlags};
 
+use super::fsutil::sort_newest_first;
 use super::paths::{directory_match_keys, home_or};
 use super::types::SessionEntry;
-use super::fsutil::sort_newest_first;
 
 /// OpenCode data root: prefer dir that contains opencode.db.
 pub fn opencode_data_root(home_dir: Option<&Path>) -> PathBuf {
@@ -172,15 +172,9 @@ mod tests {
     #[cfg(target_os = "windows")]
     #[test]
     fn opencode_fallback_windows_uses_continue() {
-        assert_eq!(
-            opencode_no_id_fallback(),
-            vec!["--continue".to_string()]
-        );
+        assert_eq!(opencode_no_id_fallback(), vec!["--continue".to_string()]);
         // No DB under a fake home → fallback path
-        let tmp = std::env::temp_dir().join(format!(
-            "sema-oc-fb-{}",
-            std::process::id()
-        ));
+        let tmp = std::env::temp_dir().join(format!("sema-oc-fb-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
         let args = opencode_resume_args("/nonexistent/proj", Some(&tmp));
@@ -192,10 +186,7 @@ mod tests {
     #[test]
     fn opencode_fallback_macos_linux_empty() {
         assert!(opencode_no_id_fallback().is_empty());
-        let tmp = std::env::temp_dir().join(format!(
-            "sema-oc-fb-{}",
-            std::process::id()
-        ));
+        let tmp = std::env::temp_dir().join(format!("sema-oc-fb-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
         let args = opencode_resume_args("/nonexistent/proj", Some(&tmp));

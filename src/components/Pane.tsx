@@ -1,7 +1,14 @@
 import { useEffect, useState } from "react";
 import { tui } from "../api/tui";
+import { DEFAULT_SPLIT_RATIO } from "../lib/panePreview";
+import { usePaneArtifacts } from "../lib/usePaneArtifacts";
+import { usePanePreview } from "../lib/usePanePreview";
 import { paneChromeText, toolLabelForCli, useAppStore } from "../store/appStore";
 import type { PaneState } from "../store/types";
+import PaneArtifacts from "./PaneArtifacts";
+import PaneDocView, { PaneDocHeaderActions } from "./PaneDocView";
+import PaneLinkHost from "./PaneLinkHost";
+import PaneSplitBody from "./PaneSplitBody";
 import TerminalHost, { type TermHandle } from "./TerminalHost";
 
 const BRANCH_FALLBACK = "~";
@@ -19,6 +26,10 @@ type Props = {
   onSubmitChat: () => void;
   onCliSessionCleared?: () => void;
   onActivityData: (data: string) => void;
+  onRegisterArtifactsIdle?: (
+    paneId: string,
+    refreshIdle: (() => void) | null
+  ) => void;
   onContextMenu: (
     clientX: number,
     clientY: number,
@@ -40,6 +51,7 @@ export default function Pane({
   onSubmitChat,
   onCliSessionCleared,
   onActivityData,
+  onRegisterArtifactsIdle,
   onContextMenu,
   onExit,
   onTermReady,
@@ -56,6 +68,28 @@ export default function Pane({
     (!!pane.resumeOfferPending || !!pane.canResume);
 
   const [branch, setBranch] = useState(BRANCH_FALLBACK);
+  const artifacts = usePaneArtifacts(pane, visible);
+  const {
+    preview,
+    openDoc,
+    openLink,
+    close,
+    setRatio,
+    setMode,
+    setText,
+    saveDoc,
+    setVisible,
+    markLinkLoadError,
+  } = usePanePreview(pane.id, visible);
+
+  useEffect(() => {
+    setVisible(visible);
+  }, [visible, setVisible]);
+
+  useEffect(() => {
+    onRegisterArtifactsIdle?.(pane.id, artifacts.refreshIdle);
+    return () => onRegisterArtifactsIdle?.(pane.id, null);
+  }, [onRegisterArtifactsIdle, pane.id, artifacts.refreshIdle]);
 
   useEffect(() => {
     let cancelled = false;
@@ -144,16 +178,75 @@ export default function Pane({
           </button>
         </div>
       </div>
+      <PaneArtifacts
+        cliId={pane.cliId}
+        cwd={pane.cwd}
+        cliSessionId={pane.cliSessionId}
+        docs={artifacts.docs}
+        links={artifacts.links}
+        loading={artifacts.loading}
+        expanded={artifacts.expanded}
+        onToggleExpand={artifacts.onToggleExpand}
+        onOpenDoc={(path) => void openDoc(path)}
+        onOpenLink={(url) => openLink(url)}
+      />
       <div className="pane-body" onMouseDown={() => onFocus()}>
-        <TerminalHost
-          sessionId={pane.id}
-          visible={visible}
-          onSubmitChat={onSubmitChat}
-          onCliSessionCleared={onCliSessionCleared}
-          onActivityData={onActivityData}
-          onContextMenu={onContextMenu}
-          onExit={onExit}
-          onTermReady={onTermReady}
+        <PaneSplitBody
+          preview={preview}
+          splitRatio={preview?.splitRatio ?? DEFAULT_SPLIT_RATIO}
+          onSplitRatio={setRatio}
+          onClosePreview={() => close()}
+          headerActions={
+            preview?.kind === "doc" ? (
+              <PaneDocHeaderActions
+                path={preview.path}
+                mode={preview.mode}
+                dirty={preview.dirty}
+                onMode={setMode}
+              />
+            ) : null
+          }
+          content={
+            preview?.kind === "doc" ? (
+              <div className="pane-doc-host">
+                {preview.error ? (
+                  <div className="pane-doc-error" role="alert">
+                    {preview.error}
+                  </div>
+                ) : null}
+                <PaneDocView
+                  path={preview.path}
+                  mode={preview.mode}
+                  text={preview.text}
+                  dirty={preview.dirty}
+                  onMode={setMode}
+                  onText={setText}
+                  onSave={() => void saveDoc()}
+                  onClose={() => close()}
+                />
+              </div>
+            ) : preview?.kind === "link" ? (
+              <PaneLinkHost
+                paneId={pane.id}
+                url={preview.url}
+                visible={visible}
+                loadError={preview.loadError}
+                onLoadError={markLinkLoadError}
+              />
+            ) : null
+          }
+          terminal={
+            <TerminalHost
+              sessionId={pane.id}
+              visible={visible}
+              onSubmitChat={onSubmitChat}
+              onCliSessionCleared={onCliSessionCleared}
+              onActivityData={onActivityData}
+              onContextMenu={onContextMenu}
+              onExit={onExit}
+              onTermReady={onTermReady}
+            />
+          }
         />
       </div>
       <div

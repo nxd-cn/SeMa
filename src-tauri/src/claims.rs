@@ -27,7 +27,12 @@ fn claim_key(cli_id: &str, cwd: &str) -> String {
 }
 
 impl ClaimState {
-    pub fn claimed_ids(&self, cli_id: &str, cwd: &str, except_session_id: Option<&str>) -> Vec<String> {
+    pub fn claimed_ids(
+        &self,
+        cli_id: &str,
+        cwd: &str,
+        except_session_id: Option<&str>,
+    ) -> Vec<String> {
         let set = match self.by_key.get(&claim_key(cli_id, cwd)) {
             Some(s) if !s.is_empty() => s,
             _ => return Vec::new(),
@@ -82,7 +87,13 @@ impl ClaimState {
         }
     }
 
-    pub fn bind_resume(&mut self, session_id: &str, cli_id: &str, cwd: &str, resume_id: Option<&str>) {
+    pub fn bind_resume(
+        &mut self,
+        session_id: &str,
+        cli_id: &str,
+        cwd: &str,
+        resume_id: Option<&str>,
+    ) {
         self.clear_discover(session_id);
         self.clear_resume(session_id);
         let Some(id) = resume_id.filter(|s| !s.is_empty()) else {

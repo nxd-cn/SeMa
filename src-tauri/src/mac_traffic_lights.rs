@@ -12,13 +12,13 @@ use std::sync::Mutex;
 
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
+use objc2::MainThreadMarker;
 use objc2::{define_class, msg_send, ClassType, MainThreadOnly, Message};
 use objc2_app_kit::{
     NSApplication, NSApplicationPresentationOptions, NSView, NSWindow, NSWindowButton,
     NSWindowCollectionBehavior,
 };
 use objc2_foundation::{NSObject, NSObjectProtocol, NSPoint};
-use objc2::MainThreadMarker;
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
 /// Must match `#mac-titlebar` height in `app.css`.

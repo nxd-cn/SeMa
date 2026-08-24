@@ -51,19 +51,13 @@ pub struct PrefsWithHome {
 }
 
 fn prefs_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| e.to_string())?;
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     Ok(dir.join("prefs.json"))
 }
 
 fn cli_cache_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| e.to_string())?;
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     Ok(dir.join("cli-cache.json"))
 }
@@ -110,7 +104,10 @@ pub fn save_prefs(app: &AppHandle, prefs: &Prefs) -> Result<(), String> {
     fs::write(path, s).map_err(|e| e.to_string())
 }
 
-pub fn write_cli_cache(app: &AppHandle, tools: &[crate::cli_detect::ToolInfo]) -> Result<(), String> {
+pub fn write_cli_cache(
+    app: &AppHandle,
+    tools: &[crate::cli_detect::ToolInfo],
+) -> Result<(), String> {
     let path = cli_cache_path(app)?;
     let body = serde_json::json!({
         "detectedAt": chrono_like_now(),

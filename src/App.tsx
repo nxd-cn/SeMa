@@ -16,6 +16,7 @@ import TermColumnsScrollbar from "./components/TermColumnsScrollbar";
 import type { TermHandle } from "./components/TerminalHost";
 import { applyHorizontalWheel } from "./lib/horizontalWheel";
 import { newSessionKeyAction } from "./lib/newSessionKeys";
+import { reorderGroupList } from "./lib/reorderGroups";
 import { sidebarToggleKeyAction } from "./lib/sidebarToggleKeys";
 import {
   looksLikeTurnOutput,
@@ -35,6 +36,7 @@ const ACTIVITY_CLIS = new Set([
   "pi",
   "codex",
   "gemini",
+  "kimi",
 ]);
 const IDLE_MS = 2500;
 const MIN_FLEX = 0.15;
@@ -85,6 +87,14 @@ export default function App() {
   };
   const idleTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(
     new Map()
+  );
+  const artifactsIdle = useRef<Map<string, () => void>>(new Map());
+  const registerArtifactsIdle = useCallback(
+    (paneId: string, fn: (() => void) | null) => {
+      if (fn) artifactsIdle.current.set(paneId, fn);
+      else artifactsIdle.current.delete(paneId);
+    },
+    []
   );
   const bindInFlight = useRef<Set<string>>(new Set());
   const followInFlight = useRef<Set<string>>(new Set());
@@ -233,6 +243,7 @@ export default function App() {
       for (const pid of g.paneIds) {
         s.updatePane(pid, { activityArmed: false });
         void followCliSessionRef.current?.(pid, { timeoutMs: 0 });
+        artifactsIdle.current.get(pid)?.();
       }
       if (userLookingAtGroup(groupId)) return;
       s.setUnread(groupId, true);
@@ -679,6 +690,17 @@ export default function App() {
     [clearGroupActivity, equalizePaneFlex, persistLayout, refitPanes, setActivePane]
   );
 
+  const reorderGroups = useCallback(
+    (sourceGroupId: string, insertBeforeIndex: number) => {
+      const s = useAppStore.getState();
+      const next = reorderGroupList(s.groups, sourceGroupId, insertBeforeIndex);
+      if (next === s.groups) return;
+      s.setGroups(next);
+      void persistLayout();
+    },
+    [persistLayout]
+  );
+
   const onContinue = useCallback(
     async (sessionId: string) => {
       const s = useAppStore.getState();
@@ -1078,6 +1100,7 @@ export default function App() {
     return () => {
       for (const t of idleTimers.current.values()) clearTimeout(t);
       idleTimers.current.clear();
+      artifactsIdle.current.clear();
       void tui.setUnreadBadge(0);
     };
   }, []);
@@ -1115,6 +1138,7 @@ export default function App() {
           onActivateGroup={activateGroup}
           onCloseGroup={(gid) => void closeGroup(gid)}
           onMergeGroups={mergeGroups}
+          onReorderGroups={reorderGroups}
           onRenameGroup={renameGroup}
           hideNewButton={isMac}
         />
@@ -1159,6 +1183,7 @@ export default function App() {
                         onSubmitChat={() => noticeUserStartedChat(pane.id)}
                         onCliSessionCleared={() => onCliSessionCleared(pane.id)}
                         onActivityData={(data) => noteActivity(pane.id, data)}
+                        onRegisterArtifactsIdle={registerArtifactsIdle}
                         onContextMenu={(x, y, hasSel) =>
                           setCtxMenu({
                             x,

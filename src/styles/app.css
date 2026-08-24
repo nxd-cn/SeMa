@@ -235,11 +235,18 @@ body {
   cursor: grab;
   border-radius: 3px;
   user-select: none;
+  -webkit-user-select: none;
   touch-action: none;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   position: relative;
+}
+#tabs.is-dragging li:hover:not(.drop-target) {
+  background: transparent;
+}
+#tabs.is-dragging li.active {
+  background: #094771;
 }
 #tabs li .tab-rename-input {
   width: 100%;
@@ -296,11 +303,28 @@ body {
 #tabs li.dragging {
   cursor: grabbing;
   opacity: 0.35;
+  color: transparent;
+}
+#tabs li.dragging::selection {
+  background: transparent;
 }
 #tabs li.drop-target {
   outline: 1px solid #3794ff;
   background: #094771;
   box-shadow: inset 0 0 0 1px #5eb1ff;
+}
+#tabs li.drop-insert-before {
+  box-shadow: inset 0 2px 0 #3794ff;
+}
+#tabs li.tab-insert-marker,
+#tabs .tab-insert-marker {
+  height: 0;
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+  border: none;
+  pointer-events: none;
+  box-shadow: inset 0 2px 0 #3794ff;
 }
 .tab-drag-ghost {
   position: fixed;
@@ -535,6 +559,74 @@ body {
 .pane-actions button[hidden] {
   display: none;
 }
+.pane-artifacts {
+  flex-shrink: 0;
+  background: #252526;
+  border-bottom: 1px solid #333;
+  font-size: 11px;
+  color: #bbb;
+}
+.pane-artifacts-summary {
+  height: 24px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 0 8px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  user-select: none;
+}
+.pane-artifacts-summary:hover {
+  background: #2a2d2e;
+}
+.pane-artifacts-chevron {
+  flex-shrink: 0;
+  color: #888;
+}
+.pane-artifacts-body-shell {
+  max-height: 120px;
+  display: flex;
+  flex-direction: row;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+}
+.pane-artifacts-body {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  max-height: 120px;
+  overflow: auto;
+  padding: 4px 8px 8px;
+}
+.pane-artifacts-section-title {
+  color: #888;
+  margin: 4px 0 2px;
+}
+.pane-artifacts-item {
+  display: block;
+  color: #9cdcfe;
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.pane-artifacts-item:hover {
+  color: #fff;
+}
+.pane-artifacts-item.is-missing {
+  color: #666;
+  cursor: default;
+}
+.pane-artifacts-item.is-missing:hover {
+  color: #666;
+}
 .pane-body {
   flex: 1;
   min-height: 0;
@@ -542,6 +634,326 @@ body {
   padding: 4px;
   overflow: hidden;
   position: relative;
+}
+.pane-split-body {
+  display: flex;
+  flex-direction: row;
+  height: 100%;
+  width: 100%;
+  min-height: 0;
+  min-width: 0;
+}
+.pane-split-body.is-dragging {
+  user-select: none;
+  cursor: col-resize;
+}
+.pane-split-term {
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+.pane-split-content {
+  display: flex;
+  flex-direction: column;
+  min-width: min(200px, 75%);
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #1e1e1e;
+}
+.pane-split-header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 6px;
+  background: #252526;
+  border-bottom: 1px solid #333;
+  font-size: 11px;
+  color: #bbb;
+}
+.pane-split-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pane-split-header-actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+}
+.pane-split-close {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid #444;
+  border-radius: 3px;
+  background: #333;
+  color: #ddd;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+}
+.pane-split-close:hover {
+  background: #094771;
+}
+.pane-split-content-body {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  position: relative;
+}
+.pane-link-host {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.pane-link-fallback {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 12px;
+  height: 100%;
+  padding: 16px;
+  box-sizing: border-box;
+}
+.pane-link-fallback-msg {
+  margin: 0;
+  color: #f48771;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.pane-link-open-external {
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid #444;
+  border-radius: 3px;
+  background: #333;
+  color: #ddd;
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+}
+.pane-link-open-external:hover {
+  background: #094771;
+}
+.pane-doc-host {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+}
+.pane-doc-error {
+  flex-shrink: 0;
+  padding: 8px 12px;
+  color: #f48771;
+  font-size: 12px;
+  line-height: 1.4;
+  background: #2a1f1f;
+  border-bottom: 1px solid #5a2d2d;
+  white-space: pre-wrap;
+}
+.pane-doc-host .pane-doc-view {
+  flex: 1;
+}
+.pane-doc-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  background: #1e1e1e;
+  color: #ddd;
+}
+.pane-doc-view > .chrome-vscroll-shell {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+/* Shared vertical chrome scrollbar (preview / editor / artifacts) — matches term-hscroll */
+.chrome-vscroll-shell {
+  display: flex;
+  flex-direction: row;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+}
+.chrome-vscroll-port {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.chrome-vscroll-port::-webkit-scrollbar {
+  width: 0 !important;
+  height: 0 !important;
+  display: none !important;
+}
+.chrome-vscroll-shell.is-v-overflow .chrome-vscroll-port {
+  margin-right: -12px;
+  padding-right: 12px;
+}
+.chrome-vscroll {
+  flex: 0 0 0;
+  width: 0;
+  overflow: hidden;
+  position: relative;
+  background: #252526;
+  border-left: 0 solid #333;
+  z-index: 5;
+  align-self: stretch;
+}
+.chrome-vscroll.visible {
+  flex-basis: 10px;
+  width: 10px;
+  border-left-width: 1px;
+  overflow: visible;
+}
+.chrome-vscroll-thumb {
+  position: absolute;
+  left: 1px;
+  width: 8px;
+  background: #3c3c3c;
+  border-radius: 4px;
+  box-sizing: border-box;
+  border: 1px solid #252526;
+}
+.chrome-vscroll-thumb:hover,
+.chrome-vscroll-thumb.dragging {
+  background: #094771;
+  border-color: #0e639c;
+}
+.pane-doc-mode-toggle {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #444;
+  border-radius: 3px;
+  background: #333;
+  color: #ddd;
+  cursor: pointer;
+  line-height: 1;
+}
+.pane-doc-mode-toggle:hover {
+  background: #094771;
+}
+.pane-doc-save-hint {
+  font-size: 11px;
+  color: #888;
+  user-select: none;
+}
+.pane-doc-dirty-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #cca700;
+  flex-shrink: 0;
+}
+.pane-doc-editor {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  height: 100%;
+  resize: none;
+  border: none;
+  outline: none;
+  padding: 8px 10px;
+  background: #1e1e1e;
+  color: #d4d4d4;
+  font-family: Menlo, Monaco, Consolas, "Courier New", monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  tab-size: 2;
+}
+.pane-doc-preview,
+.pane-doc-sandbox {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+  padding: 12px 14px;
+  isolation: isolate;
+  contain: content;
+  font-size: 13px;
+  line-height: 1.55;
+  color: #ddd;
+}
+.pane-doc-sandbox h1,
+.pane-doc-sandbox h2,
+.pane-doc-sandbox h3,
+.pane-doc-sandbox h4 {
+  color: #fff;
+  font-weight: 600;
+  margin: 0.8em 0 0.4em;
+}
+.pane-doc-sandbox h1 {
+  font-size: 1.5em;
+  border-bottom: 1px solid #333;
+  padding-bottom: 0.25em;
+}
+.pane-doc-sandbox h2 {
+  font-size: 1.25em;
+}
+.pane-doc-sandbox h3 {
+  font-size: 1.1em;
+}
+.pane-doc-sandbox a {
+  color: #9cdcfe;
+}
+.pane-doc-sandbox code {
+  background: #2d2d2d;
+  padding: 0.1em 0.35em;
+  border-radius: 3px;
+  font-family: Menlo, Monaco, Consolas, "Courier New", monospace;
+  font-size: 0.9em;
+}
+.pane-doc-sandbox pre {
+  background: #252526;
+  padding: 10px;
+  border-radius: 4px;
+  overflow: auto;
+}
+.pane-doc-sandbox pre code {
+  background: none;
+  padding: 0;
+}
+.pane-doc-sandbox blockquote {
+  margin: 0.6em 0;
+  padding-left: 12px;
+  border-left: 3px solid #3c3c3c;
+  color: #aaa;
+}
+.pane-doc-sandbox table {
+  border-collapse: collapse;
+}
+.pane-doc-sandbox th,
+.pane-doc-sandbox td {
+  border: 1px solid #3c3c3c;
+  padding: 4px 8px;
+}
+.pane-doc-sandbox img {
+  max-width: 100%;
+}
+.pane-doc-sandbox ul,
+.pane-doc-sandbox ol {
+  padding-left: 1.4em;
 }
 .pane-branch {
   flex-shrink: 0;

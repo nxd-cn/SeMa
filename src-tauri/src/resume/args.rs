@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::OnceLock;
 
+use super::kimi::kimi_resume_args;
 use super::opencode::opencode_resume_args;
 
 fn resume_args_map() -> &'static HashMap<&'static str, Vec<&'static str>> {
@@ -14,6 +15,7 @@ fn resume_args_map() -> &'static HashMap<&'static str, Vec<&'static str>> {
             ("cursor", vec!["--continue"]),
             // opencode: resolved dynamically
             ("opencode", vec![]),
+            ("kimi", vec!["--continue"]),
             ("pi", vec!["--continue"]),
             ("codex", vec!["resume", "--last"]),
             ("gemini", vec!["--resume"]),
@@ -35,19 +37,23 @@ pub fn resume_args_for_id(cli_id: &str, cli_session_id: Option<&str>) -> Vec<Str
         "cursor" => vec!["--resume".into(), id],
         "pi" => vec!["--session".into(), id],
         "opencode" => vec!["--session".into(), id],
+        "kimi" => vec!["--session".into(), id],
         "codex" => vec!["resume".into(), id],
         "gemini" => vec!["--resume".into(), id],
         _ => Vec::new(),
     }
 }
 
-/// Resume argv for known CLIs (manual「继续上次」). OpenCode needs cwd for `--session`.
+/// Resume argv for known CLIs (manual「继续上次」). OpenCode / Kimi need cwd for `--session`.
 pub fn resume_args_unchecked(cli_id: &str, cwd: &str, home_dir: Option<&Path>) -> Vec<String> {
     if !supports_resume(cli_id) {
         return Vec::new();
     }
     if cli_id == "opencode" {
         return opencode_resume_args(cwd, home_dir);
+    }
+    if cli_id == "kimi" {
+        return kimi_resume_args(cwd, home_dir);
     }
     resume_args_map()
         .get(cli_id)
@@ -85,6 +91,11 @@ mod tests {
             resume_args_for_id("gemini", Some("a1b2c3d4-e5f6-7890-abcd-ef1234567890")),
             vec!["--resume", "a1b2c3d4-e5f6-7890-abcd-ef1234567890"]
         );
+        assert_eq!(
+            resume_args_for_id("kimi", Some("kid-1")),
+            vec!["--session", "kid-1"]
+        );
+        assert!(supports_resume("kimi"));
         assert!(resume_args_for_id("terminal", Some("x")).is_empty());
         assert!(resume_args_for_id("claude", Some("")).is_empty());
         assert!(resume_args_for_id("claude", None).is_empty());

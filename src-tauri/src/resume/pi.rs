@@ -42,11 +42,7 @@ pub fn pi_session_dir_names(cwd: &str) -> Vec<String> {
 pub fn has_pi_session(cwd: &str, home_dir: Option<&Path>) -> bool {
     let home = home_or(home_dir);
     for name in pi_session_dir_names(cwd) {
-        let dir = home
-            .join(".pi")
-            .join("agent")
-            .join("sessions")
-            .join(&name);
+        let dir = home.join(".pi").join("agent").join("sessions").join(&name);
         if dir_has_session_files(&dir) {
             return true;
         }
@@ -119,11 +115,7 @@ pub fn list_pi_session_ids(cwd: &str, home_dir: Option<&Path>) -> Vec<SessionEnt
     };
 
     for name in pi_session_dir_names(cwd) {
-        let dir = home
-            .join(".pi")
-            .join("agent")
-            .join("sessions")
-            .join(&name);
+        let dir = home.join(".pi").join("agent").join("sessions").join(&name);
         scan(&dir);
         scan(&dir.join("sessions"));
     }

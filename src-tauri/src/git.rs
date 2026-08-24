@@ -23,8 +23,8 @@ pub fn normalize_branch_name(raw: &str) -> Option<String> {
 fn run_git(git_path: &str, args: &[String]) -> Option<std::process::Output> {
     #[cfg(windows)]
     {
-        use std::os::windows::process::CommandExt;
         use crate::spawn::CREATE_NO_WINDOW;
+        use std::os::windows::process::CommandExt;
         let lower = git_path.to_ascii_lowercase();
         let mut cmd = if lower.ends_with(".cmd") || lower.ends_with(".bat") {
             // CreateProcess cannot run .cmd/.bat directly; use cmd.exe like spawn.rs.
@@ -117,10 +117,7 @@ mod tests {
 
     #[test]
     fn normalize_accepts_branch() {
-        assert_eq!(
-            normalize_branch_name("  main\n"),
-            Some("main".to_string())
-        );
+        assert_eq!(normalize_branch_name("  main\n"), Some("main".to_string()));
         assert_eq!(
             normalize_branch_name("feature/foo"),
             Some("feature/foo".to_string())

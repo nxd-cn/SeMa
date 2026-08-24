@@ -1,6 +1,6 @@
 # AGENTS.md — SeMa
 
-跨平台桌面应用（**Windows / macOS**）：**多 AI CLI 会话管理器**（Tauri 2 + Rust + React/TypeScript + xterm.js + portable-pty）。按项目目录打开 Claude / Cursor Agent / OpenCode / Codex / Gemini / Pi，支持分栏、续聊、侧栏折叠、活跃脉冲与未读。
+跨平台桌面应用（**Windows / macOS**）：**多 AI CLI 会话管理器**（Tauri 2 + Rust + React/TypeScript + xterm.js + portable-pty）。按项目目录打开 Claude / Cursor Agent / OpenCode / Codex / Gemini / Pi / Kimi Code，支持分栏、续聊、侧栏折叠、活跃脉冲与未读。
 
 ## 强制：双平台（且互不影响）
 
@@ -22,6 +22,7 @@
 | 窗口顶栏 UI | 侧栏 `+` + 内容区 `#cli-toolbar`（折叠 + CLI） | Overlay 顶栏 `MacTitleBar`（`+` / 折叠 / CLI）；侧栏无 `+`、无 `#cli-toolbar`（`tauri.macos.conf.json`） |
 | Git 分支底栏 | 同左：只读 `git_branch`；失败/`~` 不崩溃 | 同左；`where`/`which` 找 git；Win `.cmd` 走 `cmd.exe /c` |
 | OpenCode 数据 | `%USERPROFILE%\.local\share\opencode`；另试 `%APPDATA%\opencode` | `~/.local/share/opencode`；另试 `~/Library/Application Support/opencode` |
+| Kimi 数据 | `%USERPROFILE%\.kimi-code`（`$KIMI_CODE_HOME`） | `~/.kimi-code`（`$KIMI_CODE_HOME`） |
 | 路径比较 | `\` 与 `/`、盘符大小写；`resume` 模块已 normalize | POSIX；`realpath` 候选（`/var`→`/private/var`） |
 
 禁止：只在本机（某一边）验证通过就当完成；禁止把某一边的路径/命令硬编码成唯一实现；禁止用「全局改默认」去修单边 bug（应分支或兼容探测）。
@@ -58,7 +59,7 @@ cd src-tauri && cargo test
 
 ### 平台差异（实现细节）
 
-- **PATH**：Windows `where` + 优先 `.cmd/.exe`；macOS/Linux `which`。Mac GUI 启动时 PATH 很窄：`platform::enrich_path_for_gui_launch` 补 Homebrew、`~/.local/bin`、`~/.npm-global/bin`（不改 Windows）。**Windows GUI**：`where` / git 的 `cmd.exe` 探测必须设 `CREATE_NO_WINDOW`（对齐旧 Electron `windowsHide`），否则启动/底栏会连闪黑框并拖慢感知启动
+- **PATH**：Windows `where` + 优先 `.cmd/.exe`；macOS/Linux `which`。Mac GUI 启动时 PATH 很窄：`platform::enrich_path_for_gui_launch` 补 Homebrew、`~/.local/bin`、`~/.npm-global/bin`、`~/bin`、OpenCode 官方安装脚本默认的 `~/.opencode/bin`、以及 Kimi Code 官方安装脚本默认的 `~/.kimi-code/bin`（不改 Windows）。**Windows GUI**：`where` / git 的 `cmd.exe` 探测必须设 `CREATE_NO_WINDOW`（对齐旧 Electron `windowsHide`），否则启动/底栏会连闪黑框并拖慢感知启动
 - **空布局启动**：两边无 `layout` 时都保持空白（关光全部会话会清 `layout`/`split`/`last`）
 - **启动首帧**：两边 `backgroundColor: #1e1e1e` + `index.html` 内联同色兜底。**仅 Windows**（`tauri.windows.conf.json`）主窗 `visible: false`，前端首帧 paint 后再 `show()`（修安装包 WebView2 白屏）。**macOS 不要** `visible: false`——hidden + `show()` 在 WKWebView 上不可靠，窗口会一直不出现。`detect_tools` 在 setup 后台线程跑，不挡首帧（`cli_list` 在 tools 仍空时会 refresh）
 - **图标**：`src-tauri/icons/`（打包必需：`32x32` / `128x128` / `128x128@2x` / `icon.icns` / `icon.ico`；Win 满幅源 `icon.png`；Mac Dock 源 `icon-mac.png` → `icon.icns`）。勿提交 Store/UWP/`ios`/`android` 多余尺寸。换标后须重编（dev 缓存可能仍嵌旧图；Mac 可 `cargo clean -p sema`）
@@ -69,6 +70,8 @@ cd src-tauri && cargo test
 - **Spawn**：Windows 无扩展名 shim 时走 `cmd.exe /c`；Unix 直接 `tool.path` + args
 - **OpenCode 数据目录**：两边都先查 `~/.local/share/opencode`；Mac 另试 Application Support；Windows 另试 `%APPDATA%\opencode`
 - **OpenCode 续聊 argv**：优先 `--session <id>`；查不到 id 时 Windows 回退 `--continue`，macOS 空 argv
+- **Kimi 续聊 argv**：优先 `--session <id>`；查不到 id 时 Windows 与 macOS 均回退 `--continue`
+- **Kimi 启动授信**：`trust_args` 注入 `--auto`（自动权限模式；Win + Mac 相同；与 `--yolo` 互斥，勿同时加）
 - **续聊路径探测（Mac）**：`resolve` + `realpath` 候选；Claude / Cursor hash / Pi / OpenCode 均走候选
 - **Cursor 会话绑定**：只认存在 `store.db` 的目录；无效 id 的 ↻ 回退 last-in-cwd（OpenCode 在 Mac 仍不传 `--continue`）
 - **同目录多分栏续聊**：优先绑定 `cliSessionId`；否则最新未占用 + claim；**新开栏不要在 spawn 时 discover**，仅该栏用户提交后 discover。CLI `/clear`（`/new`/`/reset`）会换新会话 id：输入检测后立刻清绑定并 rediscover；提交后短轮询 + 回合 idle / ↻ / 恢复时 `follow` 到更新的未占用 id
@@ -104,12 +107,13 @@ cd src-tauri && cargo test
 2. **独立为新会话（⤢）**：仅同组 ≥2 栏时显示。
 3. **活跃脉冲**：仅回车发消息后武装；有实质输出才绿点脉冲；静默 2.5s 结束。↻ **不**武装脉冲。
 4. **未读 / Toast**：不在看该组时蓝点 + 10s 卡片 + 角标；聚焦/点 tab 清除。
-5. **布局**：`prefs.layout = { groups[], activeGroupIndex }`；关光全部会话后清 layout。
+5. **布局**：`prefs.layout = { groups[], activeGroupIndex }`；`groups` 数组顺序即侧栏 tab 顺序（拖动排序后写入）；关光全部会话后清 layout。
 6. **工具栏**：Win — 内容区顶栏最左折叠、右侧 CLI；Mac — 同上控件在 Overlay 顶栏（与红绿灯一行），侧栏仅 tab。
 7. **分支底栏**：只读展示；不提供切分支 UI（交给 IDE / CLI）。
 8. **快捷键**：新建 / 侧栏折叠见上表；须窗口前台；勿注册全局热键。
 9. **溢出滚动**：多分栏横向用 `ChromeScrollbar`（Mac 勿只靠 `::-webkit-scrollbar`）；侧栏 tag 纵向可滚但不显示滚动条；Win + Mac 一起验收。
-10. **侧栏 tab 名**：默认第一栏文件夹名；双击可改并写入 `layout.groups[].customTitle`；清空恢复默认。栏顶 chrome：`{tool.label} · {cwd}`（点两侧有空格）。
+10. **侧栏 tab**：默认第一栏文件夹名；双击可改并写入 `layout.groups[].customTitle`；清空恢复默认。**拖动排序**（pointer 拖拽，非 HTML5 DnD）：拖到某 tab 上/下边缘（约各 25%）插入并重排，顺序随 `layout.groups` 持久化、下次启动恢复；**拖到标签中部**合并分栏。拖拽时禁用文字选中与 `:hover` 高亮（`#tabs.is-dragging`；仅保留合并目标 `drop-target` 与插入线 `drop-insert-before`）；被拖 tab 文字透明、由 ghost 显示标签名。右键或 Delete 关闭组。栏顶 chrome：`{tool.label} · {cwd}`（点两侧有空格）。逻辑见 `src/lib/reorderGroups.ts`、`src/components/Sidebar.tsx`。
+11. **会话产物条**：栏顶 chrome 下可折叠；摘要 **`文档 N · 链接 M`**（UI **无「产物」**）；按 `cliSessionId` 只读各 CLI 会话存储抽链接/文档。点击打开**栏内分屏**（左 xterm | 右内容，可拖分隔条）：`.md`/`.markdown` 默认**预览**、工具栏**单图标**切换编辑/预览；非 md 仅文本编辑器；**保存**用 Mac `⌘S` / Win `Ctrl+S`（无单独保存按钮）；链接用 Tauri **子 WebView** 嵌右栏（`pane_webview_*`）。**× 仅关右栏**，终端全宽、PTY 与侧栏 tab **不关**；切组时 hide WebView、回来恢复；同栏新点击替换右栏内容。`/clear`/`/new`/`/reset` 清空列表并关右栏；续聊展示历史；预览态仅内存、不写 prefs/transcript；Win+Mac 同行为。
 
 ## 代码习惯
 

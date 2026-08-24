@@ -66,7 +66,11 @@ pub fn resolve_command(name: &str) -> Option<String> {
 
 /// Build file + args for portable-pty CommandBuilder.
 pub fn spawn_target(tool_path: &str, tool_command: &str, extra_args: &[String]) -> SpawnTarget {
-    let extra: Vec<String> = extra_args.iter().cloned().filter(|s| !s.is_empty()).collect();
+    let extra: Vec<String> = extra_args
+        .iter()
+        .cloned()
+        .filter(|s| !s.is_empty())
+        .collect();
     #[cfg(windows)]
     {
         let lower = tool_path.to_ascii_lowercase();
@@ -101,10 +105,7 @@ mod tests {
 
     #[test]
     fn win_prefers_cmd() {
-        let lines = vec![
-            r"C:\npm\claude".into(),
-            r"C:\npm\claude.cmd".into(),
-        ];
+        let lines = vec![r"C:\npm\claude".into(), r"C:\npm\claude.cmd".into()];
         assert_eq!(
             pick_win_executable(&lines).as_deref(),
             Some(r"C:\npm\claude.cmd")

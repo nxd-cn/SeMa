@@ -8,8 +8,10 @@ use serde_json::Value;
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 
+use crate::artifacts::ArtifactsResult;
 use crate::badge::apply_badge;
 use crate::cli_detect::{detect_tools, sort_tools_by_usage, tool_for_id, ToolInfo};
+use crate::fs_text;
 use crate::git;
 use crate::platform::{folder_name, home_dir};
 use crate::prefs::{load_prefs, merge_prefs, save_prefs, write_cli_cache, PrefsWithHome};
@@ -312,17 +314,7 @@ pub fn session_respawn(
         Err(err) => {
             state.claims.lock().clear_resume(&id);
             if !selection.args.is_empty() {
-                if spawn_plain(
-                    &app,
-                    &state,
-                    &id,
-                    &tool,
-                    &cli_id,
-                    &cwd,
-                    pty_cols,
-                    pty_rows,
-                )
-                .is_ok()
+                if spawn_plain(&app, &state, &id, &tool, &cli_id, &cwd, pty_cols, pty_rows).is_ok()
                 {
                     let _ = app.emit(
                         "session:data",
@@ -368,10 +360,7 @@ pub async fn session_discover_cli_session(
         .collect();
     let sid = session_id.clone().unwrap_or_default();
     if !sid.is_empty() {
-        app.state::<AppState>()
-            .claims
-            .lock()
-            .clear_discover(&sid);
+        app.state::<AppState>().claims.lock().clear_discover(&sid);
     }
     let exclude = exclude_ids.unwrap_or_default();
     let deadline = Instant::now() + Duration::from_secs(120);
@@ -510,5 +499,103 @@ pub async fn git_branch(cwd: String) -> String {
         }
         // JoinError (panic in worker), timeout, or unexpected → footer stays "~".
         _ => git::BRANCH_FALLBACK.to_string(),
+    }
+}
+
+#[tauri::command]
+pub async fn read_text_file(path: String, max_bytes: Option<u64>) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || fs_text::read_text_file(&path, max_bytes))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn write_text_file(path: String, contents: String) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || fs_text::write_text_file(&path, &contents))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn session_artifacts(
+    cli_id: String,
+    cwd: String,
+    cli_session_id: Option<String>,
+) -> ArtifactsResult {
+    let id = cli_session_id.unwrap_or_default();
+    if id.trim().is_empty() {
+        return ArtifactsResult::default();
+    }
+    let session_id = id.trim().to_string();
+    let joined = tokio::time::timeout(Duration::from_secs(3), async move {
+        tokio::task::spawn_blocking(move || {
+            crate::artifacts::extract_artifacts(
+                &cli_id,
+                &cwd,
+                &session_id,
+                Some(home_dir().as_path()),
+            )
+        })
+        .await
+    })
+    .await;
+    match joined {
+        Ok(Ok(result)) => result,
+        _ => ArtifactsResult::default(),
+    }
+}
+
+/// Quote a path/URL for `cmd /C start "" <quoted>` so `&` is not a command separator.
+#[cfg(any(windows, test))]
+pub(crate) fn quote_cmd_start_target(target: &str) -> String {
+    let escaped = target.replace('"', "\"\"");
+    format!("\"{escaped}\"")
+}
+
+#[tauri::command]
+pub fn open_external(target: String) -> Result<(), String> {
+    let is_url = target.starts_with("http://") || target.starts_with("https://");
+    if !is_url && !Path::new(&target).exists() {
+        return Err("not found".into());
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        use std::process::Command;
+        Command::new("open")
+            .arg(&target)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+
+    #[cfg(windows)]
+    {
+        use crate::spawn::CREATE_NO_WINDOW;
+        use std::os::windows::process::CommandExt;
+        use std::process::Command;
+        let comspec = std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".into());
+        let quoted = quote_cmd_start_target(&target);
+        Command::new(comspec)
+            .args(["/C", "start"])
+            .raw_arg("\"\"")
+            .raw_arg(&quoted)
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::quote_cmd_start_target;
+
+    #[test]
+    fn quotes_windows_start_target_with_ampersand() {
+        assert_eq!(
+            quote_cmd_start_target("https://example.com/q?a=1&b=2"),
+            "\"https://example.com/q?a=1&b=2\""
+        );
     }
 }

@@ -98,9 +98,6 @@ mod tests {
         let id = codex_session_id_from_name(
             "rollout-2026-01-02T03-04-05-7f9f9a2e-1b3c-4c7a-9b0e-1234567890ab.jsonl",
         );
-        assert_eq!(
-            id.as_deref(),
-            Some("7f9f9a2e-1b3c-4c7a-9b0e-1234567890ab")
-        );
+        assert_eq!(id.as_deref(), Some("7f9f9a2e-1b3c-4c7a-9b0e-1234567890ab"));
     }
 }
