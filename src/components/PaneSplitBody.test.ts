@@ -62,4 +62,14 @@ describe("previewHeaderTitle", () => {
       })
     ).toBe("https://example.com/a");
   });
+
+  it("uses basename for local html file urls", () => {
+    expect(
+      previewHeaderTitle({
+        kind: "link",
+        url: "file:///tmp/out/report.html",
+        splitRatio: 0.5,
+      })
+    ).toBe("report.html");
+  });
 });

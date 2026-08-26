@@ -7,7 +7,7 @@ use serde_json::Value;
 
 use super::types::{ArtifactsResult, DocArtifact, LinkArtifact};
 
-const DOC_EXTENSIONS: [&str; 4] = [".md", ".txt", ".rst", ".markdown"];
+const DOC_EXTENSIONS: [&str; 6] = [".md", ".txt", ".rst", ".markdown", ".html", ".htm"];
 
 pub fn collect_from_texts(texts: &[(u64, String)], cwd: &str) -> ArtifactsResult {
     let mut link_map: HashMap<String, (u64, LinkArtifact)> = HashMap::new();
@@ -15,7 +15,7 @@ pub fn collect_from_texts(texts: &[(u64, String)], cwd: &str) -> ArtifactsResult
 
     for (seq, text) in texts {
         for url in extract_urls(text) {
-            if !is_embeddable_http_url(&url) {
+            if !crate::openable_url::is_openable_http_url(&url) {
                 continue;
             }
             link_map.insert(url.clone(), (*seq, LinkArtifact { url, label: None }));
@@ -99,39 +99,6 @@ fn file_mtime_ms(path: &str) -> Option<u64> {
         .map(|d| d.as_millis() as u64)
 }
 
-/// Same rules as pane webview: http(s) + host, no whitespace / angle brackets.
-pub fn is_embeddable_http_url(url: &str) -> bool {
-    let trimmed = url.trim();
-    if trimmed.is_empty()
-        || trimmed
-            .chars()
-            .any(|c| c.is_whitespace() || c == '<' || c == '>')
-    {
-        return false;
-    }
-    let lower = trimmed.to_ascii_lowercase();
-    let prefix_len = if lower.starts_with("https://") {
-        "https://".len()
-    } else if lower.starts_with("http://") {
-        "http://".len()
-    } else {
-        return false;
-    };
-    let rest = &trimmed[prefix_len..];
-    let host_port = rest
-        .split(|c| c == '/' || c == '?' || c == '#')
-        .next()
-        .unwrap_or("");
-    if host_port.is_empty() {
-        return false;
-    }
-    let host = host_port.split('@').next_back().unwrap_or(host_port);
-    let host_only = host.split(':').next().unwrap_or(host);
-    !host_only.is_empty()
-        && (host_only.contains('.')
-            || host_only.eq_ignore_ascii_case("localhost")
-            || host_only.chars().all(|c| c.is_ascii_digit() || c == '.'))
-}
 
 fn trim_trailing_punct(token: &str) -> &str {
     token.trim_end_matches(|c: char| matches!(c, '.' | ',' | ')' | ']' | '>' | ';' | ':'))
@@ -378,14 +345,22 @@ mod tests {
         std::fs::create_dir_all(&docs).unwrap();
         let plan = docs.join("plan.md");
         std::fs::write(&plan, "# plan\n").unwrap();
+        let page = docs.join("page.html");
+        std::fs::write(&page, "<html></html>\n").unwrap();
         let cwd = dir.to_string_lossy().into_owned();
-        let texts = vec![(1, "wrote docs/plan.md and secret.env".into())];
+        let texts = vec![(1, "wrote docs/plan.md and docs/page.html and secret.env".into())];
         let r = collect_from_texts(&texts, &cwd);
-        assert_eq!(r.docs.len(), 1);
+        assert_eq!(r.docs.len(), 2);
         assert!(
-            r.docs[0].path.ends_with("docs/plan.md") || r.docs[0].path.contains("docs/plan.md")
+            r.docs.iter().any(|d| d.label == "plan.md"),
+            "expected plan.md in {:?}",
+            r.docs
         );
-        assert_eq!(r.docs[0].label, "plan.md");
+        assert!(
+            r.docs.iter().any(|d| d.label == "page.html"),
+            "expected page.html in {:?}",
+            r.docs
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -472,9 +447,22 @@ mod tests {
     }
 
     #[test]
-    fn rejects_non_embeddable_urls() {
-        assert!(!is_embeddable_http_url("https://"));
-        assert!(!is_embeddable_http_url("file:///tmp/x"));
-        assert!(is_embeddable_http_url("https://example.com/a"));
+    fn rejects_non_openable_urls() {
+        use crate::openable_url::is_openable_http_url;
+        assert!(!is_openable_http_url("https://"));
+        assert!(!is_openable_http_url("file:///tmp/x"));
+        assert!(!is_openable_http_url("https://example.com:999999/"));
+        assert!(is_openable_http_url("https://example.com/a"));
+    }
+
+    #[test]
+    fn collect_skips_unopenable_links() {
+        let texts = vec![(
+            1,
+            "see https://example.com/ok and https:// and https://bad:999999/x".into(),
+        )];
+        let r = collect_from_texts(&texts, "/tmp");
+        assert_eq!(r.links.len(), 1);
+        assert_eq!(r.links[0].url, "https://example.com/ok");
     }
 }

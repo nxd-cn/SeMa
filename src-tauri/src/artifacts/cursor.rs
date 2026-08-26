@@ -8,18 +8,32 @@ use serde_json::Value;
 
 use super::extract::{collect_from_texts, collect_json_strings};
 use super::types::ArtifactsResult;
+use super::filter_texts_since;
 use crate::platform::home_dir;
 use crate::resume::cursor_workspace_hashes;
 
-pub fn artifacts_for_cursor(cwd: &str, session_id: &str, home: Option<&Path>) -> ArtifactsResult {
+pub fn session_texts_for_cursor(
+    cwd: &str,
+    session_id: &str,
+    home: Option<&Path>,
+) -> Vec<(u64, String)> {
     let session_id = session_id.trim();
     if session_id.is_empty() || !is_safe_session_id(session_id) {
-        return ArtifactsResult::default();
+        return Vec::new();
     }
     let Some(path) = find_cursor_store_db(cwd, session_id, home) else {
-        return ArtifactsResult::default();
+        return Vec::new();
     };
-    let texts = read_cursor_blobs(&path);
+    read_cursor_blobs(&path)
+}
+
+pub fn artifacts_for_cursor(
+    cwd: &str,
+    session_id: &str,
+    home: Option<&Path>,
+    since_seq: Option<u64>,
+) -> ArtifactsResult {
+    let texts = filter_texts_since(session_texts_for_cursor(cwd, session_id, home), since_seq);
     collect_from_texts(&texts, cwd)
 }
 
@@ -333,8 +347,8 @@ mod tests {
             &["https://only-b.example/y docs/b.md"],
         );
 
-        let a = artifacts_for_cursor(&cwd, "  sess-a  ", Some(&home));
-        let missing = artifacts_for_cursor(&cwd, "sess-missing", Some(&home));
+        let a = artifacts_for_cursor(&cwd, "  sess-a  ", Some(&home), None);
+        let missing = artifacts_for_cursor(&cwd, "sess-missing", Some(&home), None);
         let _ = fs::remove_dir_all(&tmp);
 
         assert!(a.links.iter().any(|l| l.url.contains("only-a")));
@@ -359,7 +373,7 @@ mod tests {
         blob.extend_from_slice(&[0x00, 0xff]);
         write_raw_blob_db(&dir.join("store.db"), &[&blob]);
 
-        let r = artifacts_for_cursor(&cwd, "sess-lossy", Some(&home));
+        let r = artifacts_for_cursor(&cwd, "sess-lossy", Some(&home), None);
         let _ = fs::remove_dir_all(&tmp);
 
         assert!(r.links.iter().any(|l| l.url.contains("lossy-a")));

@@ -30,6 +30,11 @@ export function isMarkdownPath(path: string): boolean {
   return ext === ".md" || ext === ".markdown";
 }
 
+export function isHtmlPath(path: string): boolean {
+  const ext = fileExtension(path);
+  return ext === ".html" || ext === ".htm";
+}
+
 export function defaultDocMode(path: string): "preview" | "edit" {
   return isMarkdownPath(path) ? "preview" : "edit";
 }

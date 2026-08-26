@@ -11,6 +11,7 @@
 - Gemini
 - Pi
 - Kimi Code
+- Terminal
 
 支持分栏、续聊、侧栏折叠、活跃脉冲、未读提示，以及只读 Git 分支底栏。
 
@@ -20,7 +21,7 @@
 
 - Node.js（建议 LTS）
 - Rust（stable，含 Cargo）— 见 [https://rustup.rs](https://rustup.rs)
-- 已安装并配置好 PATH 的 AI CLI（按需安装，未检测到的不会出现在列表中）
+- 已安装并配置好 PATH 的 AI CLI（按需安装，未检测到的不会出现在列表中）；**Terminal** 始终可用
 - 可选：本机 `git`（用于会话底栏显示当前分支；未安装则显示 `~`）
 - Windows 或 macOS（打包还需各平台系统依赖，见 [Tauri 文档](https://v2.tauri.app/start/prerequisites/)）
 
@@ -53,7 +54,8 @@ npm run tauri:build
 3. **CLI 快捷按钮**：在当前焦点栏的目录 / 组内再开一列（无会话时禁用）。  
 4. **侧栏 tab 排序**：拖动 tab 到另一 tab 的**上/下边缘**可调整顺序，写入配置，下次打开保持。  
 5. **合并分栏**：将 tab 拖到另一 tab **中部**可合并为同组多分栏。  
-6. **重命名 tab**：双击侧栏 tab 可改显示名；清空恢复为文件夹名。
+6. **重命名 tab**：双击侧栏 tab 可改显示名；清空恢复为文件夹名。  
+7. **Terminal**：CLI 列表始终有 **Terminal**（界面不显示 shell 名）。实际启动：Windows 为 `cmd`（`%COMSPEC%`），macOS 为 `$SHELL`（回退 zsh/bash）。不可续聊、无 ↻。
 
 ### 快捷键（仅 SeMa 窗口在前台时生效）
 

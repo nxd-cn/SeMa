@@ -6,6 +6,10 @@ export type PaneState = {
   label: string;
   canResume: boolean;
   cliSessionId?: string | null;
+  /** Max transcript seq at first bind; only later entries collected when not resuming. */
+  artifactsSinceSeq?: number | null;
+  /** ↻ / layout-bound resume: show full session history, not only post-bind. */
+  artifactsIncludeHistory?: boolean;
   continueDismissed?: boolean;
   resumeOfferPending?: boolean;
   activityArmed?: boolean;

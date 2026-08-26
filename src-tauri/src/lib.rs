@@ -7,6 +7,7 @@ mod fs_text;
 mod git;
 #[cfg(target_os = "macos")]
 mod mac_traffic_lights;
+mod openable_url;
 mod pane_webview;
 mod platform;
 mod prefs;
@@ -83,10 +84,12 @@ pub fn run() {
             commands::read_text_file,
             commands::write_text_file,
             commands::session_artifacts,
+            commands::session_artifacts_seq,
             commands::open_external,
             pane_webview::pane_webview_open,
             pane_webview::pane_webview_set_bounds,
             pane_webview::pane_webview_set_visible,
+            pane_webview::pane_webview_set_hit_test,
             pane_webview::pane_webview_close,
         ])
         .on_window_event(|window, event| {

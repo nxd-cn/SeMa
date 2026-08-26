@@ -1,11 +1,17 @@
 import type { ArtifactsResult } from "../api/tui";
-import { artifactsKey, shouldRefreshArtifacts } from "./artifactsRefresh";
+import {
+  artifactsCollectReady,
+  artifactsKey,
+  artifactsScopeKey,
+  type ArtifactsCollectPane,
+  shouldRefreshArtifacts,
+} from "./artifactsRefresh";
 
 export const ARTIFACTS_REFRESH_MIN_MS = 2000;
 
-/** Loading chrome is only for a user-visible expanded force-refresh. */
-export function shouldShowLoading(expanded: boolean, force: boolean): boolean {
-  return expanded && force;
+/** Loading chrome is only for a user-visible menu force-refresh. */
+export function shouldShowLoading(menuOpen: boolean, force: boolean): boolean {
+  return menuOpen && force;
 }
 
 /** Stale in-flight generations must not call setLoading / setArtifacts. */
@@ -16,14 +22,14 @@ export function isCurrentArtifactsRequest(
   return requestId === latestId;
 }
 
-export type ArtifactsQuery = {
+export type ArtifactsQuery = ArtifactsCollectPane & {
   cliId: string;
   cwd: string;
-  cliSessionId?: string | null;
 };
 
 export type ArtifactsRefreshOutcome =
   | { kind: "unbound" }
+  | { kind: "no-baseline" }
   | { kind: "throttled" }
   | { kind: "stale"; lastFetchMs: number }
   | { kind: "ok"; result: ArtifactsResult; lastFetchMs: number };
@@ -33,7 +39,13 @@ export function shouldClearArtifactsLoading(
   requestIsCurrent: boolean,
   kind: ArtifactsRefreshOutcome["kind"],
 ): boolean {
-  return requestIsCurrent && (kind === "ok" || kind === "unbound" || kind === "stale");
+  return (
+    requestIsCurrent &&
+    (kind === "ok" ||
+      kind === "unbound" ||
+      kind === "no-baseline" ||
+      kind === "stale")
+  );
 }
 
 export async function runArtifactsRefresh(opts: {
@@ -42,24 +54,44 @@ export async function runArtifactsRefresh(opts: {
   lastFetchMs: number;
   nowMs: number;
   minIntervalMs?: number;
-  sessionArtifacts: (args: ArtifactsQuery) => Promise<ArtifactsResult>;
+  sessionArtifacts: (args: {
+    cliId: string;
+    cwd: string;
+    cliSessionId: string;
+    sinceSeq?: number | null;
+  }) => Promise<ArtifactsResult>;
   currentBoundId: () => string | null | undefined;
+  currentScope?: () => ArtifactsCollectPane;
 }): Promise<ArtifactsRefreshOutcome> {
   const id = artifactsKey(opts.query.cliSessionId);
   if (!id) return { kind: "unbound" };
+  if (!artifactsCollectReady(opts.query)) {
+    return { kind: "no-baseline" };
+  }
 
   const min = opts.minIntervalMs ?? ARTIFACTS_REFRESH_MIN_MS;
   if (!opts.force && !shouldRefreshArtifacts(opts.lastFetchMs, opts.nowMs, min)) {
     return { kind: "throttled" };
   }
 
+  const scopeAtStart = artifactsScopeKey(opts.query);
+  const sinceSeq = opts.query.artifactsIncludeHistory
+    ? null
+    : opts.query.artifactsSinceSeq;
   const result = await opts.sessionArtifacts({
     cliId: opts.query.cliId,
     cwd: opts.query.cwd,
     cliSessionId: id,
+    sinceSeq: sinceSeq ?? null,
   });
 
   if (artifactsKey(opts.currentBoundId()) !== id) {
+    return { kind: "stale", lastFetchMs: opts.nowMs };
+  }
+  const liveScope = opts.currentScope
+    ? artifactsScopeKey(opts.currentScope())
+    : scopeAtStart;
+  if (liveScope !== scopeAtStart) {
     return { kind: "stale", lastFetchMs: opts.nowMs };
   }
   return { kind: "ok", result, lastFetchMs: opts.nowMs };

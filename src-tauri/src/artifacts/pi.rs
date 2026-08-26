@@ -6,18 +6,33 @@ use std::path::{Path, PathBuf};
 
 use super::extract::{collect_from_texts, texts_from_jsonl};
 use super::types::ArtifactsResult;
+use super::filter_texts_since;
 use crate::platform::home_dir;
 use crate::resume::{cwd_path_candidates, encode_pi_session_dir};
 
-pub fn artifacts_for_pi(cwd: &str, session_id: &str, home: Option<&Path>) -> ArtifactsResult {
+pub fn session_texts_for_pi(
+    cwd: &str,
+    session_id: &str,
+    home: Option<&Path>,
+) -> Vec<(u64, String)> {
     let session_id = session_id.trim();
     if session_id.is_empty() {
-        return ArtifactsResult::default();
+        return Vec::new();
     }
     let Some(path) = find_pi_jsonl(cwd, session_id, home) else {
-        return ArtifactsResult::default();
+        return Vec::new();
     };
-    collect_from_texts(&texts_from_jsonl(&path), cwd)
+    texts_from_jsonl(&path)
+}
+
+pub fn artifacts_for_pi(
+    cwd: &str,
+    session_id: &str,
+    home: Option<&Path>,
+    since_seq: Option<u64>,
+) -> ArtifactsResult {
+    let texts = filter_texts_since(session_texts_for_pi(cwd, session_id, home), since_seq);
+    collect_from_texts(&texts, cwd)
 }
 
 fn pi_session_folders(cwd: &str, home: &Path) -> Vec<PathBuf> {
@@ -139,8 +154,8 @@ mod tests {
             r#"{"type":"assistant","message":{"content":[{"type":"text","text":"https://only-b.example/y docs/b.md"}]}}"#,
         )
         .unwrap();
-        let a = artifacts_for_pi(cwd, "  11111111-1111-4111-8111-111111111111  ", Some(home));
-        let missing = artifacts_for_pi(cwd, "33333333-3333-4333-8333-333333333333", Some(home));
+        let a = artifacts_for_pi(cwd, "  11111111-1111-4111-8111-111111111111  ", Some(home), None);
+        let missing = artifacts_for_pi(cwd, "33333333-3333-4333-8333-333333333333", Some(home), None);
         let _ = fs::remove_dir_all(&tmp);
         assert!(a.links.iter().any(|l| l.url.contains("only-a")));
         assert!(!a.links.iter().any(|l| l.url.contains("only-b")));

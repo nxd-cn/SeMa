@@ -521,12 +521,14 @@ pub async fn session_artifacts(
     cli_id: String,
     cwd: String,
     cli_session_id: Option<String>,
+    since_seq: Option<u64>,
 ) -> ArtifactsResult {
     let id = cli_session_id.unwrap_or_default();
     if id.trim().is_empty() {
         return ArtifactsResult::default();
     }
     let session_id = id.trim().to_string();
+    let since = since_seq;
     let joined = tokio::time::timeout(Duration::from_secs(3), async move {
         tokio::task::spawn_blocking(move || {
             crate::artifacts::extract_artifacts(
@@ -534,6 +536,7 @@ pub async fn session_artifacts(
                 &cwd,
                 &session_id,
                 Some(home_dir().as_path()),
+                since,
             )
         })
         .await
@@ -545,6 +548,33 @@ pub async fn session_artifacts(
     }
 }
 
+#[tauri::command]
+pub async fn session_artifacts_seq(
+    cli_id: String,
+    cwd: String,
+    cli_session_id: Option<String>,
+) -> Result<u64, String> {
+    let id = cli_session_id.unwrap_or_default();
+    if id.trim().is_empty() {
+        return Ok(0);
+    }
+    let session_id = id.trim().to_string();
+    tokio::time::timeout(Duration::from_secs(3), async move {
+        tokio::task::spawn_blocking(move || {
+            crate::artifacts::session_seq_cursor(
+                &cli_id,
+                &cwd,
+                &session_id,
+                Some(home_dir().as_path()),
+            )
+        })
+        .await
+    })
+    .await
+    .map_err(|_| "session artifacts seq timed out".to_string())?
+    .map_err(|e| e.to_string())
+}
+
 /// Quote a path/URL for `cmd /C start "" <quoted>` so `&` is not a command separator.
 #[cfg(any(windows, test))]
 pub(crate) fn quote_cmd_start_target(target: &str) -> String {
@@ -552,18 +582,51 @@ pub(crate) fn quote_cmd_start_target(target: &str) -> String {
     format!("\"{escaped}\"")
 }
 
-#[tauri::command]
-pub fn open_external(target: String) -> Result<(), String> {
-    let is_url = target.starts_with("http://") || target.starts_with("https://");
-    if !is_url && !Path::new(&target).exists() {
+fn file_url_from_path(path: &Path) -> Result<String, String> {
+    if !path.is_file() {
         return Err("not found".into());
     }
+    let unified = path.to_string_lossy().replace('\\', "/");
+    let url = if unified.starts_with('/') {
+        format!("file://{unified}")
+    } else {
+        format!("file:///{unified}")
+    };
+    Ok(url)
+}
+
+fn resolve_open_external_target(target: &str) -> Result<String, String> {
+    let trimmed = target.trim();
+    if trimmed.is_empty() {
+        return Err("empty target".into());
+    }
+    if trimmed.starts_with("file://") {
+        let parsed = trimmed
+            .parse::<tauri::Url>()
+            .map_err(|e| format!("invalid url: {e}"))?;
+        let path = parsed
+            .to_file_path()
+            .map_err(|_| "file url is not a local path".to_string())?;
+        return file_url_from_path(&path);
+    }
+    if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+        if !crate::openable_url::is_openable_http_url(trimmed) {
+            return Err("invalid url".into());
+        }
+        return Ok(trimmed.to_string());
+    }
+    file_url_from_path(Path::new(trimmed))
+}
+
+#[tauri::command]
+pub fn open_external(target: String) -> Result<(), String> {
+    let open_target = resolve_open_external_target(&target)?;
 
     #[cfg(target_os = "macos")]
     {
         use std::process::Command;
         Command::new("open")
-            .arg(&target)
+            .arg(&open_target)
             .spawn()
             .map_err(|e| e.to_string())?;
     }
@@ -574,7 +637,7 @@ pub fn open_external(target: String) -> Result<(), String> {
         use std::os::windows::process::CommandExt;
         use std::process::Command;
         let comspec = std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".into());
-        let quoted = quote_cmd_start_target(&target);
+        let quoted = quote_cmd_start_target(&open_target);
         Command::new(comspec)
             .args(["/C", "start"])
             .raw_arg("\"\"")
@@ -589,7 +652,9 @@ pub fn open_external(target: String) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::quote_cmd_start_target;
+    use super::{quote_cmd_start_target, resolve_open_external_target};
+    use std::fs;
+    use std::path::Path;
 
     #[test]
     fn quotes_windows_start_target_with_ampersand() {
@@ -597,5 +662,35 @@ mod tests {
             quote_cmd_start_target("https://example.com/q?a=1&b=2"),
             "\"https://example.com/q?a=1&b=2\""
         );
+    }
+
+    #[test]
+    fn resolve_open_external_accepts_file_url_for_existing_file() {
+        let dir = std::env::temp_dir().join(format!("sema-open-ext-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let page = dir.join("page.html");
+        fs::write(&page, "<html></html>").unwrap();
+        let unified = page.to_string_lossy().replace('\\', "/");
+        let url = if unified.starts_with('/') {
+            format!("file://{unified}")
+        } else {
+            format!("file:///{unified}")
+        };
+        assert!(resolve_open_external_target(&url).is_ok());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn resolve_open_external_maps_existing_path_to_file_url() {
+        let dir = std::env::temp_dir().join(format!("sema-open-path-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let page = dir.join("notes.md");
+        fs::write(&page, "# x").unwrap();
+        let resolved = resolve_open_external_target(page.to_str().unwrap()).unwrap();
+        assert!(resolved.starts_with("file://"));
+        assert!(Path::new(page.to_str().unwrap()).is_file());
+        let _ = fs::remove_dir_all(&dir);
     }
 }

@@ -25,31 +25,59 @@ pub(crate) fn pane_webview_label(id: &str) -> String {
     format!("pane-wv-{sanitized}")
 }
 
+fn url_has_invalid_chars(url: &str) -> bool {
+    url.chars()
+        .any(|c| c.is_whitespace() || c == '<' || c == '>')
+}
+
+fn is_html_file_path(path: &std::path::Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .map(|e| {
+            let lower = e.to_ascii_lowercase();
+            lower == "html" || lower == "htm"
+        })
+        .unwrap_or(false)
+}
+
 /// Only http(s) with a non-empty host. WKWebView/`NSURL` panics on `unwrap`
 /// when `URLWithString` returns nil — reject bad URLs before `add_child`.
 pub(crate) fn parse_external_url(url: &str) -> Result<tauri::Url, String> {
+    crate::openable_url::parse_openable_http_url(url).map_err(|e| e.message().into())
+}
+
+/// http(s) links, or `file://` pointing at an existing local `.html` / `.htm`.
+pub(crate) fn parse_pane_webview_url(url: &str) -> Result<tauri::Url, String> {
+    if let Ok(parsed) = parse_external_url(url) {
+        ensure_wkwebview_loadable(&parsed)?;
+        return Ok(parsed);
+    }
     let trimmed = url.trim();
     if trimmed.is_empty() {
         return Err("empty url".into());
     }
-    if trimmed
-        .chars()
-        .any(|c| c.is_whitespace() || c == '<' || c == '>')
-    {
+    if url_has_invalid_chars(trimmed) {
         return Err("url has invalid characters".into());
     }
     let parsed = trimmed
         .parse::<tauri::Url>()
         .map_err(|e| format!("invalid url: {e}"))?;
-    let scheme = parsed.scheme();
-    if scheme != "http" && scheme != "https" {
-        return Err("only http(s) urls are supported".into());
+    if parsed.scheme() != "file" {
+        return Err("only http(s) or file urls are supported".into());
     }
-    match parsed.host_str() {
-        Some(host) if !host.is_empty() => {}
-        _ => return Err("url missing host".into()),
+    let path = parsed
+        .to_file_path()
+        .map_err(|()| "file url is not a local path".to_string())?;
+    if !path.is_file() {
+        return Err("html file not found".into());
     }
-    Ok(parsed)
+    if !is_html_file_path(&path) {
+        return Err("file url must point to an html file".into());
+    }
+    let normalized = tauri::Url::from_file_path(&path)
+        .map_err(|_| "file url could not be normalized".to_string())?;
+    ensure_wkwebview_loadable(&normalized)?;
+    Ok(normalized)
 }
 
 const MIN_WEBVIEW_SIDE: f64 = 8.0;
@@ -105,6 +133,24 @@ fn label_for(app: &AppHandle, id: &str) -> String {
         .unwrap_or_else(|| pane_webview_label(id))
 }
 
+/// WKWebView loads via `NSURL URLWithString`, which returns nil for some strings
+/// that `url::Url` accepts — reject before wry unwraps and panics the app.
+fn ensure_wkwebview_loadable(url: &tauri::Url) -> Result<(), String> {
+    let s = url.as_str();
+    if s.is_empty() {
+        return Err("empty url".into());
+    }
+    if s.chars()
+        .any(|c| c.is_whitespace() || c == '<' || c == '>' || c == '"')
+    {
+        return Err("url has invalid characters".into());
+    }
+    if url.scheme() == "file" && s.contains(' ') {
+        return Err("file url path must be percent-encoded".into());
+    }
+    Ok(())
+}
+
 fn require_webview(app: &AppHandle, id: &str) -> Result<Webview, String> {
     let label = label_for(app, id);
     webview_by_label(app, &label).ok_or_else(|| format!("pane webview not found: {id}"))
@@ -120,17 +166,16 @@ pub async fn pane_webview_open(
     w: f64,
     h: f64,
 ) -> Result<(), String> {
-    let parsed = parse_external_url(&url)?;
+    let state = app.state::<AppState>();
+    let _guard = state.pane_webview_ops.lock();
+    let parsed = parse_pane_webview_url(&url)?;
     validate_bounds(x, y, w, h)?;
     let label = pane_webview_label(&id);
 
+    // Always recreate so a failed or blocked navigation never leaves the prior page visible.
     if let Some(webview) = webview_by_label(&app, &label) {
-        // Prefer as_str() (canonical serialization WKWebView accepts).
-        webview.navigate(parsed).map_err(|e| e.to_string())?;
-        apply_bounds(&webview, x, y, w, h)?;
-        webview.show().map_err(|e| e.to_string())?;
-        remember_label(&app, &id, &label);
-        return Ok(());
+        webview.close().map_err(|e| e.to_string())?;
+        forget_label(&app, &id);
     }
 
     let window = main_window(&app)?;
@@ -156,6 +201,8 @@ pub async fn pane_webview_set_bounds(
     w: f64,
     h: f64,
 ) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    let _guard = state.pane_webview_ops.lock();
     validate_bounds(x, y, w, h)?;
     let webview = require_webview(&app, &id)?;
     apply_bounds(&webview, x, y, w, h)
@@ -167,6 +214,8 @@ pub async fn pane_webview_set_visible(
     id: String,
     visible: bool,
 ) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    let _guard = state.pane_webview_ops.lock();
     let webview = require_webview(&app, &id)?;
     if visible {
         webview.show().map_err(|e| e.to_string())
@@ -177,6 +226,8 @@ pub async fn pane_webview_set_visible(
 
 #[tauri::command]
 pub async fn pane_webview_close(app: AppHandle, id: String) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    let _guard = state.pane_webview_ops.lock();
     let label = label_for(&app, &id);
     if let Some(webview) = webview_by_label(&app, &label) {
         webview.close().map_err(|e| e.to_string())?;
@@ -185,9 +236,48 @@ pub async fn pane_webview_close(app: AppHandle, id: String) -> Result<(), String
     Ok(())
 }
 
+fn set_pane_webview_hit_test(webview: &Webview, hit_test: bool) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        use objc2::msg_send;
+        use objc2::runtime::AnyObject;
+        webview
+            .with_webview(move |platform| {
+                let view = platform.inner();
+                if view.is_null() {
+                    return;
+                }
+                unsafe {
+                    let obj = view.cast::<AnyObject>();
+                    let ignore = !hit_test;
+                    let _: () = msg_send![obj, setIgnoresMouseEvents: ignore];
+                }
+            })
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (webview, hit_test);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn pane_webview_set_hit_test(
+    app: AppHandle,
+    id: String,
+    hit_test: bool,
+) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    let _guard = state.pane_webview_ops.lock();
+    let webview = require_webview(&app, &id)?;
+    set_pane_webview_hit_test(&webview, hit_test)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{pane_webview_label, parse_external_url, validate_bounds};
+    use super::{pane_webview_label, parse_external_url, parse_pane_webview_url, validate_bounds};
+    use std::fs;
 
     #[test]
     fn label_keeps_uuid_pane_id() {
@@ -220,6 +310,33 @@ mod tests {
         assert!(parse_external_url("javascript:alert(1)").is_err());
         assert!(parse_external_url("https://").is_err());
         assert!(parse_external_url("https://example.com/a b").is_err());
+    }
+
+    #[test]
+    fn parse_pane_webview_accepts_local_html_file() {
+        let dir = std::env::temp_dir().join(format!("sema-wv-html-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let page = dir.join("page.html");
+        fs::write(&page, "<html><body>ok</body></html>").unwrap();
+        let txt = dir.join("notes.txt");
+        fs::write(&txt, "plain").unwrap();
+        let unified = page.to_string_lossy().replace('\\', "/");
+        let url = if unified.starts_with('/') {
+            format!("file://{unified}")
+        } else {
+            format!("file:///{unified}")
+        };
+        assert!(parse_pane_webview_url(&url).is_ok());
+        assert!(parse_pane_webview_url("file:///no/such/page.html").is_err());
+        let txt_unified = txt.to_string_lossy().replace('\\', "/");
+        let txt_url = if txt_unified.starts_with('/') {
+            format!("file://{txt_unified}")
+        } else {
+            format!("file:///{txt_unified}")
+        };
+        assert!(parse_pane_webview_url(&txt_url).is_err());
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

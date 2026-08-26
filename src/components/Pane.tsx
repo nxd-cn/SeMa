@@ -71,7 +71,7 @@ export default function Pane({
   const artifacts = usePaneArtifacts(pane, visible);
   const {
     preview,
-    openDoc,
+    openArtifactDoc,
     openLink,
     close,
     setRatio,
@@ -149,18 +149,29 @@ export default function Pane({
               ↻
             </button>
           ) : null}
-          <button
-            type="button"
-            className="pane-detach"
-            title="独立为新会话"
-            hidden={!showDetach}
-            onClick={(e) => {
-              e.stopPropagation();
-              onDetach();
-            }}
-          >
-            ⤢
-          </button>
+          {showDetach ? (
+            <button
+              type="button"
+              className="pane-detach"
+              title="独立为新会话"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDetach();
+              }}
+            >
+              ⤢
+            </button>
+          ) : null}
+          <PaneArtifacts
+            cliSessionId={pane.cliSessionId}
+            docs={artifacts.docs}
+            links={artifacts.links}
+            loading={artifacts.loading}
+            openMenu={artifacts.openMenu}
+            onToggleMenu={artifacts.onToggleMenu}
+            onOpenDoc={(path) => openArtifactDoc(path)}
+            onOpenLink={(url) => openLink(url)}
+          />
           <button
             type="button"
             className="pane-close"
@@ -178,18 +189,6 @@ export default function Pane({
           </button>
         </div>
       </div>
-      <PaneArtifacts
-        cliId={pane.cliId}
-        cwd={pane.cwd}
-        cliSessionId={pane.cliSessionId}
-        docs={artifacts.docs}
-        links={artifacts.links}
-        loading={artifacts.loading}
-        expanded={artifacts.expanded}
-        onToggleExpand={artifacts.onToggleExpand}
-        onOpenDoc={(path) => void openDoc(path)}
-        onOpenLink={(url) => openLink(url)}
-      />
       <div className="pane-body" onMouseDown={() => onFocus()}>
         <PaneSplitBody
           preview={preview}
@@ -230,6 +229,7 @@ export default function Pane({
                 paneId={pane.id}
                 url={preview.url}
                 visible={visible}
+                chromeOverlayOpen={artifacts.openMenu != null}
                 loadError={preview.loadError}
                 onLoadError={markLinkLoadError}
               />

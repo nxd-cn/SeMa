@@ -1,36 +1,230 @@
-import { useEffect, useRef, useState } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
+import { createPortal } from "react-dom";
 import type { DocArtifact, LinkArtifact } from "../api/tui";
-import { artifactsSummaryLabel } from "../lib/artifactsSummary";
+import { openArtifactInBrowser } from "../lib/openArtifactExternal";
+import { placeArtifactsDropdown } from "../lib/artifactDropdownPlace";
+import type { ArtifactsMenuKind } from "../lib/usePaneArtifacts";
 import ChromeVScrollbar from "./ChromeVScrollbar";
+import { FolderIcon, GlobeIcon } from "./PaneArtifactsIcons";
+
+type ArtifactCtx = {
+  x: number;
+  y: number;
+  kind: "doc" | "link";
+  target: string;
+  disabled?: boolean;
+} | null;
 
 type Props = {
-  cliId: string;
-  cwd: string;
   cliSessionId?: string | null;
   docs: DocArtifact[];
   links: LinkArtifact[];
   loading?: boolean;
-  onToggleExpand: (expanded: boolean) => void;
-  expanded: boolean;
+  openMenu: ArtifactsMenuKind;
+  onToggleMenu: (kind: ArtifactsMenuKind) => void;
   onOpenDoc: (path: string) => void;
   onOpenLink: (url: string) => void;
 };
 
+function ArtifactContextMenu({
+  menu,
+  onClose,
+  onOpen,
+}: {
+  menu: ArtifactCtx;
+  onClose: () => void;
+  onOpen: () => void;
+}) {
+  const elRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!menu) return;
+    const onDown = () => onClose();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [menu, onClose]);
+
+  useEffect(() => {
+    if (!menu || !elRef.current) return;
+    const el = elRef.current;
+    const pad = 4;
+    const w = el.offsetWidth || 120;
+    const h = el.offsetHeight || 40;
+    const left = Math.min(menu.x, window.innerWidth - w - pad);
+    const top = Math.min(menu.y, window.innerHeight - h - pad);
+    el.style.left = `${Math.max(pad, left)}px`;
+    el.style.top = `${Math.max(pad, top)}px`;
+  }, [menu]);
+
+  if (!menu) return null;
+
+  return (
+    <div
+      ref={elRef}
+      className="term-ctx pane-artifacts-ctx"
+      role="menu"
+      onMouseDown={(e) => e.stopPropagation()}
+    >
+      <button
+        type="button"
+        role="menuitem"
+        disabled={menu.disabled}
+        onClick={() => {
+          if (menu.disabled) return;
+          onOpen();
+          onClose();
+        }}
+      >
+        Open
+      </button>
+    </div>
+  );
+}
+
+type DropdownProps = {
+  kind: "docs" | "links";
+  docs: DocArtifact[];
+  links: LinkArtifact[];
+  loading?: boolean;
+  missingPaths: Set<string>;
+  onOpenDoc: (path: string) => void;
+  onOpenLink: (url: string) => void;
+  onContextMenu: (
+    e: React.MouseEvent,
+    kind: "doc" | "link",
+    target: string,
+    disabled?: boolean,
+  ) => void;
+  onPick: () => void;
+  onDocError: (path: string) => void;
+};
+
+const ArtifactsDropdown = forwardRef<HTMLDivElement, DropdownProps>(
+  function ArtifactsDropdown(
+    {
+      kind,
+      docs,
+      links,
+      loading,
+      missingPaths,
+      onOpenDoc,
+      onOpenLink,
+      onContextMenu,
+      onPick,
+      onDocError,
+    },
+    ref,
+  ) {
+    const bodyRef = useRef<HTMLDivElement | null>(null);
+    const layoutKey = `${kind}:${docs.length}:${links.length}`;
+
+    const openDoc = (path: string) => {
+      if (missingPaths.has(path)) return;
+      onPick();
+      void Promise.resolve(onOpenDoc(path)).catch(() => onDocError(path));
+    };
+
+    return (
+      <div
+        ref={ref}
+        className="pane-artifacts-dropdown is-portal"
+        role="menu"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <div className="pane-artifacts-dropdown-shell chrome-vscroll-shell">
+          <div
+            ref={bodyRef}
+            className="pane-artifacts-dropdown-body chrome-vscroll-port"
+          >
+            {kind === "docs" ? (
+              docs.length > 0 ? (
+                docs.map((doc) => {
+                  const missing = missingPaths.has(doc.path);
+                  return (
+                    <a
+                      key={doc.path}
+                      role="menuitem"
+                      className={`pane-artifacts-item${missing ? " is-missing" : ""}`}
+                      href={missing ? undefined : "#"}
+                      title={doc.path}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        openDoc(doc.path);
+                      }}
+                      onContextMenu={(e) =>
+                        onContextMenu(e, "doc", doc.path, missing)
+                      }
+                    >
+                      {doc.label}
+                    </a>
+                  );
+                })
+              ) : loading ? (
+                <div className="pane-artifacts-empty">加载中…</div>
+              ) : (
+                <div className="pane-artifacts-empty">暂无文档</div>
+              )
+            ) : links.length > 0 ? (
+              links.map((link) => (
+                <a
+                  key={link.url}
+                  role="menuitem"
+                  className="pane-artifacts-item"
+                  href={link.url}
+                  title={link.url}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    onPick();
+                    onOpenLink(link.url);
+                  }}
+                  onContextMenu={(e) => onContextMenu(e, "link", link.url)}
+                >
+                  {link.label || link.url}
+                </a>
+              ))
+            ) : loading ? (
+              <div className="pane-artifacts-empty">加载中…</div>
+            ) : (
+              <div className="pane-artifacts-empty">暂无链接</div>
+            )}
+          </div>
+          <ChromeVScrollbar scrollRef={bodyRef} layoutKey={layoutKey} />
+        </div>
+      </div>
+    );
+  },
+);
+
 export default function PaneArtifacts({
-  cliId: _cliId,
-  cwd: _cwd,
   cliSessionId,
   docs,
   links,
   loading,
-  onToggleExpand,
-  expanded,
+  openMenu,
+  onToggleMenu,
   onOpenDoc,
   onOpenLink,
 }: Props) {
   const [missingPaths, setMissingPaths] = useState<Set<string>>(() => new Set());
-  const bodyRef = useRef<HTMLDivElement | null>(null);
-  const layoutKey = `${docs.length}:${links.length}:${expanded ? 1 : 0}`;
+  const [ctxMenu, setCtxMenu] = useState<ArtifactCtx>(null);
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const docsBtnRef = useRef<HTMLButtonElement>(null);
+  const linksBtnRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     const live = new Set(docs.map((d) => d.path));
@@ -46,87 +240,148 @@ export default function PaneArtifacts({
     });
   }, [docs]);
 
-  if (!cliSessionId) return null;
-  if (docs.length + links.length === 0 && !expanded && !loading) return null;
+  useLayoutEffect(() => {
+    if (!openMenu || !dropdownRef.current) return;
+    const anchor =
+      openMenu === "docs" ? docsBtnRef.current : linksBtnRef.current;
+    if (!anchor) return;
+    const panel = dropdownRef.current;
+    const place = () => placeArtifactsDropdown(anchor, panel);
+    place();
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [openMenu, docs.length, links.length, loading]);
 
-  const markMissing = (path: string) => {
+  useEffect(() => {
+    if (!openMenu) return;
+    const onDown = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (toolbarRef.current?.contains(target)) return;
+      if (dropdownRef.current?.contains(target)) return;
+      onToggleMenu(null);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onToggleMenu(null);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [openMenu, onToggleMenu]);
+
+  const markMissing = useCallback((path: string) => {
     setMissingPaths((prev) => {
       if (prev.has(path)) return prev;
       const next = new Set(prev);
       next.add(path);
       return next;
     });
+  }, []);
+
+  const showCtx = (
+    e: React.MouseEvent,
+    kind: "doc" | "link",
+    target: string,
+    disabled = false,
+  ) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setCtxMenu({ x: e.clientX, y: e.clientY, kind, target, disabled });
   };
 
-  const openDoc = (path: string) => {
-    if (missingPaths.has(path)) return;
-    void Promise.resolve(onOpenDoc(path)).catch(() => markMissing(path));
+  const openExternal = () => {
+    const menu = ctxMenu;
+    if (!menu || menu.disabled) return;
+    void openArtifactInBrowser(menu.kind, menu.target).catch(() => {
+      if (menu.kind === "doc") markMissing(menu.target);
+    });
   };
+
+  if (!cliSessionId) return null;
+
+  const showDocs = docs.length > 0 || openMenu === "docs";
+  const showLinks = links.length > 0 || openMenu === "links";
+  if (!showDocs && !showLinks && !loading) return null;
+
+  const closeMenu = () => onToggleMenu(null);
+
+  const dropdown =
+    openMenu != null ? (
+      <ArtifactsDropdown
+        ref={dropdownRef}
+        kind={openMenu}
+        docs={docs}
+        links={links}
+        loading={loading}
+        missingPaths={missingPaths}
+        onOpenDoc={onOpenDoc}
+        onOpenLink={onOpenLink}
+        onContextMenu={showCtx}
+        onPick={closeMenu}
+        onDocError={markMissing}
+      />
+    ) : null;
 
   return (
-    <div className="pane-artifacts" aria-busy={loading ? true : undefined}>
-      <button
-        type="button"
-        className="pane-artifacts-summary"
-        aria-expanded={expanded}
-        onClick={() => onToggleExpand(!expanded)}
+    <>
+      <div
+        ref={toolbarRef}
+        className="pane-artifacts-toolbar"
+        aria-busy={loading ? true : undefined}
       >
-        <span className="pane-artifacts-chevron" aria-hidden="true">
-          {expanded ? "▾" : "▸"}
-        </span>
-        {artifactsSummaryLabel(docs.length, links.length)}
-      </button>
-      {expanded ? (
-        <div className="pane-artifacts-body-shell chrome-vscroll-shell">
-          <div ref={bodyRef} className="pane-artifacts-body chrome-vscroll-port">
-            {docs.length > 0 ? (
-              <>
-                <div className="pane-artifacts-section-title">文档</div>
-                {docs.map((doc) => {
-                  const missing = missingPaths.has(doc.path);
-                  return (
-                    <a
-                      key={doc.path}
-                      className={`pane-artifacts-item${missing ? " is-missing" : ""}`}
-                      href={missing ? undefined : "#"}
-                      title={doc.path}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        openDoc(doc.path);
-                      }}
-                    >
-                      {doc.label}
-                    </a>
-                  );
-                })}
-              </>
-            ) : null}
-            {links.length > 0 ? (
-              <>
-                <div className="pane-artifacts-section-title">链接</div>
-                {links.map((link) => (
-                  <a
-                    key={link.url}
-                    className="pane-artifacts-item"
-                    href={link.url}
-                    title={link.url}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      onOpenLink(link.url);
-                    }}
-                  >
-                    {link.label || link.url}
-                  </a>
-                ))}
-              </>
-            ) : null}
-            {loading && docs.length + links.length === 0 ? (
-              <div className="pane-artifacts-section-title">加载中…</div>
-            ) : null}
+        {showDocs ? (
+          <div className="pane-artifacts-trigger-wrap">
+            <button
+              ref={docsBtnRef}
+              type="button"
+              className={`pane-artifacts-icon-btn${openMenu === "docs" ? " is-open" : ""}`}
+              title="文档"
+              aria-label={`文档 ${docs.length}`}
+              aria-expanded={openMenu === "docs"}
+              aria-haspopup="menu"
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleMenu(openMenu === "docs" ? null : "docs");
+              }}
+            >
+              <FolderIcon />
+              <span className="pane-artifacts-count">{docs.length}</span>
+            </button>
           </div>
-          <ChromeVScrollbar scrollRef={bodyRef} layoutKey={layoutKey} />
-        </div>
-      ) : null}
-    </div>
+        ) : null}
+        {showLinks ? (
+          <div className="pane-artifacts-trigger-wrap">
+            <button
+              ref={linksBtnRef}
+              type="button"
+              className={`pane-artifacts-icon-btn${openMenu === "links" ? " is-open" : ""}`}
+              title="链接"
+              aria-label={`链接 ${links.length}`}
+              aria-expanded={openMenu === "links"}
+              aria-haspopup="menu"
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleMenu(openMenu === "links" ? null : "links");
+              }}
+            >
+              <GlobeIcon />
+              <span className="pane-artifacts-count">{links.length}</span>
+            </button>
+          </div>
+        ) : null}
+        <ArtifactContextMenu
+          menu={ctxMenu}
+          onClose={() => setCtxMenu(null)}
+          onOpen={openExternal}
+        />
+      </div>
+      {dropdown ? createPortal(dropdown, document.body) : null}
+    </>
   );
 }

@@ -4,21 +4,36 @@ use std::path::Path;
 
 use super::extract::{collect_from_texts, texts_from_jsonl};
 use super::types::ArtifactsResult;
+use super::filter_texts_since;
 use crate::resume::find_kimi_session_dir;
 
-pub fn artifacts_for_kimi(cwd: &str, session_id: &str, home: Option<&Path>) -> ArtifactsResult {
+pub fn session_texts_for_kimi(
+    cwd: &str,
+    session_id: &str,
+    home: Option<&Path>,
+) -> Vec<(u64, String)> {
     let session_id = session_id.trim();
     if session_id.is_empty() {
-        return ArtifactsResult::default();
+        return Vec::new();
     }
     let Some(dir) = find_kimi_session_dir(cwd, session_id, home) else {
-        return ArtifactsResult::default();
+        return Vec::new();
     };
     let wire = dir.join("agents").join("main").join("wire.jsonl");
     if !wire.is_file() {
-        return ArtifactsResult::default();
+        return Vec::new();
     }
-    collect_from_texts(&texts_from_jsonl(&wire), cwd)
+    texts_from_jsonl(&wire)
+}
+
+pub fn artifacts_for_kimi(
+    cwd: &str,
+    session_id: &str,
+    home: Option<&Path>,
+    since_seq: Option<u64>,
+) -> ArtifactsResult {
+    let texts = filter_texts_since(session_texts_for_kimi(cwd, session_id, home), since_seq);
+    collect_from_texts(&texts, cwd)
 }
 
 #[cfg(test)]
@@ -59,8 +74,8 @@ mod tests {
             )
             .unwrap();
         }
-        let a = artifacts_for_kimi(cwd, "  sess-a  ", Some(&tmp));
-        let missing = artifacts_for_kimi(cwd, "missing", Some(&tmp));
+        let a = artifacts_for_kimi(cwd, "  sess-a  ", Some(&tmp), None);
+        let missing = artifacts_for_kimi(cwd, "missing", Some(&tmp), None);
         let _ = fs::remove_dir_all(&tmp);
         assert!(a.links.iter().any(|l| l.url.contains("only-a")));
         assert!(!a.links.iter().any(|l| l.url.contains("only-b")));
@@ -92,8 +107,8 @@ mod tests {
             format!(r#"{{"sessionId":"{sid}","sessionDir":"custom/{sid}","workDir":"{cwd}"}}"#),
         )
         .unwrap();
-        let a = artifacts_for_kimi(cwd, sid, Some(&tmp));
-        let wrong_cwd = artifacts_for_kimi("/tmp/other-proj", sid, Some(&tmp));
+        let a = artifacts_for_kimi(cwd, sid, Some(&tmp), None);
+        let wrong_cwd = artifacts_for_kimi("/tmp/other-proj", sid, Some(&tmp), None);
         let _ = fs::remove_dir_all(&tmp);
         assert!(a.links.iter().any(|l| l.url.contains("from-index")));
         assert!(wrong_cwd.docs.is_empty() && wrong_cwd.links.is_empty());
@@ -128,7 +143,7 @@ mod tests {
             r#"{"type":"turn.response","text":"https://kimi-dispatch.example/x"}"#,
         )
         .unwrap();
-        let r = super::super::extract_artifacts("kimi", cwd, sid, Some(&tmp));
+        let r = super::super::extract_artifacts("kimi", cwd, sid, Some(&tmp), None);
         let _ = fs::remove_dir_all(&tmp);
         assert!(r.links.iter().any(|l| l.url.contains("kimi-dispatch")));
     }

@@ -21,7 +21,19 @@ export function splitRatioFromPointer(
 export function previewHeaderTitle(
   preview: Exclude<PanePreview, null>
 ): string {
-  if (preview.kind === "link") return preview.url;
+  if (preview.kind === "link") {
+    if (preview.url.startsWith("file:")) {
+      try {
+        const pathname = decodeURIComponent(new URL(preview.url).pathname);
+        const normalized = pathname.replace(/^\/([A-Za-z]:)/, "$1");
+        const base = normalized.split("/").filter(Boolean).pop();
+        if (base) return base;
+      } catch {
+        /* fall through */
+      }
+    }
+    return preview.url;
+  }
   const base = preview.path.replace(/\\/g, "/").split("/").pop();
   return base && base.length > 0 ? base : preview.path;
 }

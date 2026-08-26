@@ -5,8 +5,10 @@ import { useAppStore } from "../store/appStore";
 import {
   openDocPreview,
   openLinkPreview,
+  isHtmlPath,
   type PanePreview,
 } from "./panePreview";
+import { pathToFileUrl } from "./pathToFileUrl";
 
 export function isDocDirty(preview: PanePreview): boolean {
   return preview?.kind === "doc" && preview.dirty;
@@ -177,10 +179,31 @@ export function usePanePreview(paneId: string, visible = true) {
       ) {
         return;
       }
+      const prev = previewRef.current;
+      if (
+        prev?.kind === "link" &&
+        prev.url === url &&
+        !prev.loadError
+      ) {
+        return;
+      }
       genRef.current += 1;
-      setPreview(openLinkPreview(previewRef.current, url));
+      const next = openLinkPreview(previewRef.current, url);
+      if (shouldClosePaneWebviewOnChange(prev, next)) closePaneWebview(paneId);
+      setPreview(next);
     },
-    [bound],
+    [bound, paneId],
+  );
+
+  const openArtifactDoc = useCallback(
+    (path: string) => {
+      if (isHtmlPath(path)) {
+        openLink(pathToFileUrl(path));
+        return;
+      }
+      void openDoc(path);
+    },
+    [openDoc, openLink],
   );
 
   const close = useCallback(
@@ -254,6 +277,7 @@ export function usePanePreview(paneId: string, visible = true) {
   return {
     preview,
     openDoc,
+    openArtifactDoc,
     openLink,
     close,
     setRatio,

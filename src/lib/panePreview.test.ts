@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_SPLIT_RATIO,
   defaultDocMode,
+  isHtmlPath,
   isMarkdownPath,
   openDocPreview,
   openLinkPreview,
@@ -19,7 +20,21 @@ describe("isMarkdownPath", () => {
   it("rejects non-markdown doc extensions", () => {
     expect(isMarkdownPath("/proj/readme.txt")).toBe(false);
     expect(isMarkdownPath("/proj/index.rst")).toBe(false);
+    expect(isMarkdownPath("/proj/index.html")).toBe(false);
     expect(isMarkdownPath("/proj/noext")).toBe(false);
+  });
+});
+
+describe("isHtmlPath", () => {
+  it("detects .html and .htm (case-insensitive)", () => {
+    expect(isHtmlPath("/proj/out/index.html")).toBe(true);
+    expect(isHtmlPath("page.HTM")).toBe(true);
+    expect(isHtmlPath("C:\\site\\home.HTML")).toBe(true);
+  });
+
+  it("rejects other extensions", () => {
+    expect(isHtmlPath("/proj/readme.md")).toBe(false);
+    expect(isHtmlPath("/proj/readme.txt")).toBe(false);
   });
 });
 

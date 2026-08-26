@@ -5,18 +5,33 @@ use std::path::{Path, PathBuf};
 
 use super::extract::{collect_from_texts, texts_from_json_or_jsonl};
 use super::types::ArtifactsResult;
+use super::filter_texts_since;
 use crate::platform::home_dir;
 use crate::resume::gemini_project_hashes;
 
-pub fn artifacts_for_gemini(cwd: &str, session_id: &str, home: Option<&Path>) -> ArtifactsResult {
+pub fn session_texts_for_gemini(
+    cwd: &str,
+    session_id: &str,
+    home: Option<&Path>,
+) -> Vec<(u64, String)> {
     let session_id = session_id.trim();
     if session_id.is_empty() {
-        return ArtifactsResult::default();
+        return Vec::new();
     }
     let Some(path) = find_gemini_file(cwd, session_id, home) else {
-        return ArtifactsResult::default();
+        return Vec::new();
     };
-    collect_from_texts(&texts_from_json_or_jsonl(&path), cwd)
+    texts_from_json_or_jsonl(&path)
+}
+
+pub fn artifacts_for_gemini(
+    cwd: &str,
+    session_id: &str,
+    home: Option<&Path>,
+    since_seq: Option<u64>,
+) -> ArtifactsResult {
+    let texts = filter_texts_since(session_texts_for_gemini(cwd, session_id, home), since_seq);
+    collect_from_texts(&texts, cwd)
 }
 
 fn find_gemini_file(cwd: &str, session_id: &str, home: Option<&Path>) -> Option<PathBuf> {
@@ -172,8 +187,8 @@ mod tests {
             r#"{"sessionId":"22222222-2222-4222-8222-222222222222","text":"https://only-b.example/y docs/b.md"}"#,
         )
         .unwrap();
-        let a = artifacts_for_gemini(cwd, "  11111111-1111-4111-8111-111111111111  ", Some(home));
-        let missing = artifacts_for_gemini(cwd, "33333333-3333-4333-8333-333333333333", Some(home));
+        let a = artifacts_for_gemini(cwd, "  11111111-1111-4111-8111-111111111111  ", Some(home), None);
+        let missing = artifacts_for_gemini(cwd, "33333333-3333-4333-8333-333333333333", Some(home), None);
         let _ = fs::remove_dir_all(&tmp);
         assert!(a.links.iter().any(|l| l.url.contains("only-a")));
         assert!(!a.links.iter().any(|l| l.url.contains("only-b")));

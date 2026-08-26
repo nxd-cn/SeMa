@@ -131,12 +131,24 @@ export const tui = {
     cliId: string;
     cwd: string;
     cliSessionId?: string | null;
+    sinceSeq?: number | null;
   }) =>
     invoke<ArtifactsResult>("session_artifacts", {
       cliId: args.cliId,
       cwd: args.cwd,
       cliSessionId: args.cliSessionId ?? null,
+      sinceSeq: args.sinceSeq ?? null,
     }).catch(() => ({ docs: [], links: [] })),
+  sessionArtifactsSeq: (args: {
+    cliId: string;
+    cwd: string;
+    cliSessionId?: string | null;
+  }) =>
+    invoke<number>("session_artifacts_seq", {
+      cliId: args.cliId,
+      cwd: args.cwd,
+      cliSessionId: args.cliSessionId ?? null,
+    }).catch(() => 0),
   openExternal: (target: string) =>
     invoke<void>("open_external", { target }),
   readTextFile: (args: { path: string; maxBytes?: number }) =>
@@ -166,6 +178,8 @@ export const tui = {
   }) => invoke<void>("pane_webview_set_bounds", args),
   paneWebviewSetVisible: (args: { id: string; visible: boolean }) =>
     invoke<void>("pane_webview_set_visible", args),
+  paneWebviewSetHitTest: (args: { id: string; hitTest: boolean }) =>
+    invoke<void>("pane_webview_set_hit_test", { id: args.id, hit_test: args.hitTest }),
   paneWebviewClose: (id: string) =>
     invoke<void>("pane_webview_close", { id }),
   /** Current git branch for cwd, or `~` when not a repo / git missing / errors. */

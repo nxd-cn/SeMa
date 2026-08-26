@@ -9,6 +9,7 @@ use serde_json::Value;
 
 use super::extract::collect_from_texts;
 use super::types::ArtifactsResult;
+use super::filter_texts_since;
 use crate::platform::home_dir;
 use crate::resume::cwd_path_candidates;
 
@@ -30,15 +31,28 @@ fn claude_project_ids(cwd: &str) -> Vec<String> {
     out
 }
 
-pub fn artifacts_for_claude(cwd: &str, session_id: &str, home: Option<&Path>) -> ArtifactsResult {
+pub fn session_texts_for_claude(
+    cwd: &str,
+    session_id: &str,
+    home: Option<&Path>,
+) -> Vec<(u64, String)> {
     let session_id = session_id.trim();
     if session_id.is_empty() {
-        return ArtifactsResult::default();
+        return Vec::new();
     }
     let Some(path) = find_claude_jsonl(cwd, session_id, home) else {
-        return ArtifactsResult::default();
+        return Vec::new();
     };
-    let texts = read_claude_jsonl(&path);
+    read_claude_jsonl(&path)
+}
+
+pub fn artifacts_for_claude(
+    cwd: &str,
+    session_id: &str,
+    home: Option<&Path>,
+    since_seq: Option<u64>,
+) -> ArtifactsResult {
+    let texts = filter_texts_since(session_texts_for_claude(cwd, session_id, home), since_seq);
     collect_from_texts(&texts, cwd)
 }
 
@@ -146,8 +160,8 @@ mod tests {
             r#"{"type":"assistant","message":{"content":[{"type":"text","text":"https://only-b.example/y docs/b.md"}]}}"#,
         )
         .unwrap();
-        let a = artifacts_for_claude(cwd, "  sess-a  ", Some(home));
-        let missing = artifacts_for_claude(cwd, "sess-missing", Some(home));
+        let a = artifacts_for_claude(cwd, "  sess-a  ", Some(home), None);
+        let missing = artifacts_for_claude(cwd, "sess-missing", Some(home), None);
         let _ = fs::remove_dir_all(&tmp);
         assert!(a.links.iter().any(|l| l.url.contains("only-a")));
         assert!(!a.links.iter().any(|l| l.url.contains("only-b")));

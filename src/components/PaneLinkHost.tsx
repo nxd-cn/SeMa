@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { tui } from "../api/tui";
+import { linkPreviewHoldLabel } from "../lib/artifactDropdownPlace";
 import { boundsReady, domRectToLogical } from "../lib/paneWebviewBounds";
 
 export const LINK_OPEN_EXTERNAL_LABEL = "在系统浏览器打开";
@@ -9,6 +10,8 @@ type Props = {
   paneId: string;
   url: string;
   visible: boolean;
+  /** Artifacts chrome menu open — hide native webview so the portaled menu stays on top. */
+  chromeOverlayOpen?: boolean;
   loadError?: boolean;
   onLoadError: () => void;
 };
@@ -23,16 +26,31 @@ export default function PaneLinkHost({
   paneId,
   url,
   visible,
+  chromeOverlayOpen = false,
   loadError,
   onLoadError,
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const visibleRef = useRef(visible);
+  const chromeOverlayOpenRef = useRef(chromeOverlayOpen);
   visibleRef.current = visible;
+  chromeOverlayOpenRef.current = chromeOverlayOpen;
   const openedRef = useRef(false);
+  const openGenRef = useRef(0);
+  const [loading, setLoading] = useState(false);
+  const [webviewReady, setWebviewReady] = useState(false);
+
+  const webviewShown = () =>
+    visibleRef.current && !chromeOverlayOpenRef.current;
+
+  const closeWebview = useCallback(() => {
+    openedRef.current = false;
+    setWebviewReady(false);
+    void tui.paneWebviewClose(paneId).catch(() => {});
+  }, [paneId]);
 
   const reportBounds = useCallback(() => {
-    if (!visibleRef.current || !openedRef.current) return;
+    if (!webviewShown() || !openedRef.current) return;
     const bounds = readLogicalBounds(hostRef.current);
     if (!boundsReady(bounds)) return;
     void tui
@@ -40,21 +58,41 @@ export default function PaneLinkHost({
       .catch(() => {});
   }, [paneId]);
 
+  const syncWebviewVisible = useCallback(() => {
+    if (!openedRef.current) return;
+    void tui
+      .paneWebviewSetVisible({ id: paneId, visible: webviewShown() })
+      .catch(() => {});
+    if (webviewShown()) reportBounds();
+  }, [paneId, reportBounds]);
+
+  useEffect(() => {
+    if (!loadError) return;
+    setLoading(false);
+    closeWebview();
+  }, [loadError, closeWebview]);
+
   useEffect(() => {
     if (loadError) return;
+    const gen = ++openGenRef.current;
     let cancelled = false;
-    openedRef.current = false;
+    closeWebview();
+    setLoading(true);
     let raf = 0;
     let attempts = 0;
 
+    const stale = () => cancelled || gen !== openGenRef.current;
+
     const tryOpen = () => {
-      if (cancelled) return;
+      if (stale()) return;
       const bounds = readLogicalBounds(hostRef.current);
       if (!boundsReady(bounds)) {
         attempts += 1;
         if (attempts > 120) {
-          // ~2s at 60fps — give up and surface fallback instead of 0×0 create.
-          if (!cancelled) onLoadError();
+          if (!stale()) {
+            setLoading(false);
+            onLoadError();
+          }
           return;
         }
         raf = window.requestAnimationFrame(tryOpen);
@@ -63,23 +101,21 @@ export default function PaneLinkHost({
       void tui
         .paneWebviewOpen({ id: paneId, url, ...bounds })
         .then(() => {
-          if (cancelled) {
-            void tui.paneWebviewClose(paneId).catch(() => {});
+          if (stale()) {
+            closeWebview();
             return;
           }
           openedRef.current = true;
-          if (!visibleRef.current) {
-            void tui
-              .paneWebviewSetVisible({ id: paneId, visible: false })
-              .catch(() => {});
-            return;
-          }
-          reportBounds();
+          setWebviewReady(true);
+          setLoading(false);
+          syncWebviewVisible();
         })
         .catch(() => {
-          openedRef.current = false;
-          void tui.paneWebviewClose(paneId).catch(() => {});
-          if (!cancelled) onLoadError();
+          closeWebview();
+          if (!stale()) {
+            setLoading(false);
+            onLoadError();
+          }
         });
     };
 
@@ -88,14 +124,13 @@ export default function PaneLinkHost({
       cancelled = true;
       window.cancelAnimationFrame(raf);
     };
-  }, [paneId, url, loadError, onLoadError, reportBounds]);
+  }, [paneId, url, loadError, onLoadError, closeWebview, syncWebviewVisible]);
 
   useEffect(() => {
     return () => {
-      openedRef.current = false;
-      void tui.paneWebviewClose(paneId).catch(() => {});
+      closeWebview();
     };
-  }, [paneId]);
+  }, [closeWebview]);
 
   useEffect(() => {
     const el = hostRef.current;
@@ -110,12 +145,29 @@ export default function PaneLinkHost({
   }, [reportBounds]);
 
   useEffect(() => {
-    if (visible) reportBounds();
-  }, [visible, reportBounds]);
+    syncWebviewVisible();
+  }, [visible, chromeOverlayOpen, syncWebviewVisible]);
+
+  const showFallback = !!loadError;
+  const showLoading = loading && !loadError;
+  const showHold =
+    chromeOverlayOpen && webviewReady && !showLoading && !showFallback;
 
   return (
     <div className="pane-link-host" ref={hostRef}>
-      {loadError ? (
+      {showLoading ? (
+        <div className="pane-link-status" aria-busy="true">
+          加载中…
+        </div>
+      ) : null}
+      {showHold ? (
+        <div className="pane-link-preview-hold" aria-hidden="true">
+          <span className="pane-link-preview-hold-label">
+            {linkPreviewHoldLabel(url)}
+          </span>
+        </div>
+      ) : null}
+      {showFallback ? (
         <div className="pane-link-fallback">
           <p className="pane-link-fallback-msg">{LINK_LOAD_ERROR_MESSAGE}</p>
           <button

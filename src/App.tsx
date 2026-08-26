@@ -303,7 +303,7 @@ export default function App() {
           ) {
             continue;
           }
-          s.updatePane(sessionId, { cliSessionId: found.cliSessionId });
+      s.updatePane(sessionId, { cliSessionId: found.cliSessionId, artifactsIncludeHistory: false, artifactsSinceSeq: undefined });
           await persistLayout();
           return;
         }
@@ -344,7 +344,7 @@ export default function App() {
         const next = found?.cliSessionId;
         if (!next || next === expected) return null;
         if (usedCliSessionIds(v2.cwd, sessionId).includes(next)) return null;
-        s.updatePane(sessionId, { cliSessionId: next });
+        s.updatePane(sessionId, { cliSessionId: next, artifactsIncludeHistory: false, artifactsSinceSeq: undefined });
         await persistLayout();
         return next;
       } catch {
@@ -362,7 +362,7 @@ export default function App() {
       const s = useAppStore.getState();
       const v = s.panes[sessionId];
       if (!v?.cliSessionId) return;
-      s.updatePane(sessionId, { cliSessionId: null });
+      s.updatePane(sessionId, { cliSessionId: null, artifactsSinceSeq: null, artifactsIncludeHistory: false });
       void persistLayout();
     },
     [persistLayout]
@@ -480,6 +480,8 @@ export default function App() {
         label: result.label,
         canResume: !!result.canResume,
         cliSessionId: boundId,
+        artifactsIncludeHistory: false,
+        artifactsSinceSeq: undefined,
         continueDismissed: false,
         resumeOfferPending: false,
         activityArmed: false,
@@ -709,6 +711,8 @@ export default function App() {
       s.updatePane(sessionId, {
         continueDismissed: true,
         resumeOfferPending: false,
+        artifactsIncludeHistory: true,
+        artifactsSinceSeq: undefined,
       });
       if (cur.cliSessionId) {
         await followCliSession(sessionId, { timeoutMs: 3000 });

@@ -13,6 +13,8 @@ pub struct AppState {
     pub claims: Mutex<ClaimState>,
     /// pane id -> child webview label (`pane-wv-...`)
     pub pane_webviews: Mutex<HashMap<String, String>>,
+    /// Serialize child webview open/close/bounds/visible (WKWebView races can panic wry).
+    pub pane_webview_ops: Mutex<()>,
 }
 
 impl Default for AppState {
@@ -22,6 +24,7 @@ impl Default for AppState {
             pty: Arc::new(PtyState::default()),
             claims: Mutex::new(ClaimState::default()),
             pane_webviews: Mutex::new(HashMap::new()),
+            pane_webview_ops: Mutex::new(()),
         }
     }
 }

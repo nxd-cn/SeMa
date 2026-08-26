@@ -7,6 +7,7 @@ use serde_json::Value;
 
 use super::extract::{collect_from_texts, collect_json_strings};
 use super::types::ArtifactsResult;
+use super::filter_texts_since;
 use crate::platform::home_dir;
 
 fn opencode_data_root(home: Option<&Path>) -> PathBuf {
@@ -40,12 +41,22 @@ fn opencode_data_root(home: Option<&Path>) -> PathBuf {
         .unwrap_or_else(|| home.join(".local").join("share").join("opencode"))
 }
 
-pub fn artifacts_for_opencode(cwd: &str, session_id: &str, home: Option<&Path>) -> ArtifactsResult {
+pub fn session_texts_for_opencode(session_id: &str, home: Option<&Path>) -> Vec<(u64, String)> {
     let session_id = session_id.trim();
     if session_id.is_empty() {
-        return ArtifactsResult::default();
+        return Vec::new();
     }
-    collect_from_texts(&read_opencode_texts(session_id, home), cwd)
+    read_opencode_texts(session_id, home)
+}
+
+pub fn artifacts_for_opencode(
+    cwd: &str,
+    session_id: &str,
+    home: Option<&Path>,
+    since_seq: Option<u64>,
+) -> ArtifactsResult {
+    let texts = filter_texts_since(session_texts_for_opencode(session_id, home), since_seq);
+    collect_from_texts(&texts, cwd)
 }
 
 fn open_readonly(path: &Path) -> Option<Connection> {
@@ -213,8 +224,8 @@ mod tests {
             ],
         );
 
-        let a = artifacts_for_opencode(&cwd, "  sess-a  ", Some(&home));
-        let missing = artifacts_for_opencode(&cwd, "sess-missing", Some(&home));
+        let a = artifacts_for_opencode(&cwd, "  sess-a  ", Some(&home), None);
+        let missing = artifacts_for_opencode(&cwd, "sess-missing", Some(&home), None);
         let _ = fs::remove_dir_all(&tmp);
 
         assert!(a.links.iter().any(|l| l.url.contains("only-a")));
@@ -280,8 +291,8 @@ mod tests {
         let (tmp, home, cwd) = test_home("fallback");
         write_fallback_db(&db_path(&home));
 
-        let a = artifacts_for_opencode(&cwd, "sess-a", Some(&home));
-        let b = artifacts_for_opencode(&cwd, "sess-b", Some(&home));
+        let a = artifacts_for_opencode(&cwd, "sess-a", Some(&home), None);
+        let b = artifacts_for_opencode(&cwd, "sess-b", Some(&home), None);
         let _ = fs::remove_dir_all(&tmp);
 
         assert!(a.links.iter().any(|l| l.url.contains("msg-a")));

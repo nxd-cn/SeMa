@@ -1,6 +1,6 @@
 # AGENTS.md — SeMa
 
-跨平台桌面应用（**Windows / macOS**）：**多 AI CLI 会话管理器**（Tauri 2 + Rust + React/TypeScript + xterm.js + portable-pty）。按项目目录打开 Claude / Cursor Agent / OpenCode / Codex / Gemini / Pi / Kimi Code，支持分栏、续聊、侧栏折叠、活跃脉冲与未读。
+跨平台桌面应用（**Windows / macOS**）：**多 AI CLI 会话管理器**（Tauri 2 + Rust + React/TypeScript + xterm.js + portable-pty）。按项目目录打开 Claude / Cursor Agent / OpenCode / Codex / Gemini / Pi / Kimi Code，以及系统 **Terminal**（Win `cmd` / Mac `$SHELL`），支持分栏、续聊、侧栏折叠、活跃脉冲与未读。
 
 ## 强制：双平台（且互不影响）
 
@@ -23,6 +23,7 @@
 | Git 分支底栏 | 同左：只读 `git_branch`；失败/`~` 不崩溃 | 同左；`where`/`which` 找 git；Win `.cmd` 走 `cmd.exe /c` |
 | OpenCode 数据 | `%USERPROFILE%\.local\share\opencode`；另试 `%APPDATA%\opencode` | `~/.local/share/opencode`；另试 `~/Library/Application Support/opencode` |
 | Kimi 数据 | `%USERPROFILE%\.kimi-code`（`$KIMI_CODE_HOME`） | `~/.kimi-code`（`$KIMI_CODE_HOME`） |
+| Terminal 启动 | `%COMSPEC%`（通常 `cmd.exe`）；直启 `.exe` | `$SHELL` → `/bin/zsh` → `/bin/bash`；直启 shell 路径 |
 | 路径比较 | `\` 与 `/`、盘符大小写；`resume` 模块已 normalize | POSIX；`realpath` 候选（`/var`→`/private/var`） |
 
 禁止：只在本机（某一边）验证通过就当完成；禁止把某一边的路径/命令硬编码成唯一实现；禁止用「全局改默认」去修单边 bug（应分支或兼容探测）。
@@ -55,7 +56,7 @@ cd src-tauri && cargo test
 | Resume | `src-tauri/src/resume/` | 各 CLI 历史探测与续聊 argv |
 | Mac 顶栏原生 | `mac_traffic_lights.rs` + `tauri.macos.conf.json` | Overlay、钉红绿灯、绿钮沉浸缩放（非 Spaces） |
 
-**没有「终端 / cmd」选项。** 目录与探测列表只有上述 AI CLI。
+**Terminal** 与 AI CLI 同列于探测列表（`cli_detect.rs` 末尾 synthetic 条目，不 PATH 探测）。UI 标签固定 **Terminal**（Win/Mac 同文案，**不**在括号里显示 shell 名）。**无续聊 / 无 CLI 会话绑定 / 无产物条 / 无活跃脉冲**（`cliId === "terminal"` 分支）。Spawn 走 `spawn_target` 直启 shell（Win 不用 `cmd /c` 包一层）；实际进程见下表「Terminal 启动」。
 
 ### 平台差异（实现细节）
 
@@ -94,6 +95,10 @@ cd src-tauri && cargo test
 - `session_respawn`（↻；失败则回退新会话）
 - `session_kill` / `session_write` / `session_resize` / `session_discover_cli_session`
 - `git_branch` → 分支名或 `~`（永不抛错）
+- `session_artifacts` / `session_artifacts_seq` → 按 `cliSessionId` 抽文档/链接（可选 `sinceSeq`）
+- `read_text_file` / `write_text_file` → 栏内文档读写
+- `pane_webview_open` / `pane_webview_set_bounds` / `pane_webview_set_visible` / `pane_webview_close` → 栏内链接/HTML 子 WebView
+- `open_external` → 系统浏览器（产物右键 Open、链接加载失败兜底）
 - 推送事件：`session:data`、`session:exit`
 
 ### Prefs（常用字段）
@@ -113,7 +118,8 @@ cd src-tauri && cargo test
 8. **快捷键**：新建 / 侧栏折叠见上表；须窗口前台；勿注册全局热键。
 9. **溢出滚动**：多分栏横向用 `ChromeScrollbar`（Mac 勿只靠 `::-webkit-scrollbar`）；侧栏 tag 纵向可滚但不显示滚动条；Win + Mac 一起验收。
 10. **侧栏 tab**：默认第一栏文件夹名；双击可改并写入 `layout.groups[].customTitle`；清空恢复默认。**拖动排序**（pointer 拖拽，非 HTML5 DnD）：拖到某 tab 上/下边缘（约各 25%）插入并重排，顺序随 `layout.groups` 持久化、下次启动恢复；**拖到标签中部**合并分栏。拖拽时禁用文字选中与 `:hover` 高亮（`#tabs.is-dragging`；仅保留合并目标 `drop-target` 与插入线 `drop-insert-before`）；被拖 tab 文字透明、由 ghost 显示标签名。右键或 Delete 关闭组。栏顶 chrome：`{tool.label} · {cwd}`（点两侧有空格）。逻辑见 `src/lib/reorderGroups.ts`、`src/components/Sidebar.tsx`。
-11. **会话产物条**：栏顶 chrome 下可折叠；摘要 **`文档 N · 链接 M`**（UI **无「产物」**）；按 `cliSessionId` 只读各 CLI 会话存储抽链接/文档。点击打开**栏内分屏**（左 xterm | 右内容，可拖分隔条）：`.md`/`.markdown` 默认**预览**、工具栏**单图标**切换编辑/预览；非 md 仅文本编辑器；**保存**用 Mac `⌘S` / Win `Ctrl+S`（无单独保存按钮）；链接用 Tauri **子 WebView** 嵌右栏（`pane_webview_*`）。**× 仅关右栏**，终端全宽、PTY 与侧栏 tab **不关**；切组时 hide WebView、回来恢复；同栏新点击替换右栏内容。`/clear`/`/new`/`/reset` 清空列表并关右栏；续聊展示历史；预览态仅内存、不写 prefs/transcript；Win+Mac 同行为。
+11. **会话产物条**：**Terminal 无产物图标**。绑定 `cliSessionId` 且非「待续聊」后，栏顶 **`.pane-actions`**（`×` 左侧）显示 **文件夹图标 + 文档数**、**地球图标 + 链接数**（UI **无「产物」**、无 chrome 下折叠条）。点击图标 → **Portal 悬浮下拉**（锚在图标下方、右对齐；`Esc`/点外关闭）。左键条目 → **栏内分屏**（左 xterm | 右内容，可拖分隔条）：`.md`/`.markdown` 默认**预览**、工具栏**单图标**切换编辑/预览；`.html`/`.htm` 与 `http(s)` 链接用 Tauri **子 WebView**；其余白名单文档为文本编辑器；**保存** Mac `⌘S` / Win `Ctrl+S`。右键条目 **Open** → 系统浏览器。按 `cliSessionId` 只读各 CLI 会话存储；**布局恢复 / 待 ↻ 时不展示**，须点 ↻ 或开聊后才有；↻ 续聊展示**全量历史**；新会话仅展示绑定后的新条目。不可栏内打开的 `http(s)` 在收集阶段过滤。**子 WebView 叠在主窗口 HTML 之上**：链接预览已开时，产物下拉打开须 **`pane_webview_set_visible(false)`**，右栏显示 URL/文件名占位，关菜单后恢复页面（Win+Mac 同逻辑）。**× 仅关右栏**；切组 hide WebView；`/clear`/`/new`/`/reset` 清空并关右栏；预览态仅内存。见 `docs/superpowers/specs/2026-08-16-in-pane-artifact-preview-design.md`。
+12. **Terminal**：CLI 选择器与栏顶 chrome 均显示 **Terminal**（无括号后缀）。后台 Win 启 `COMSPEC`/`cmd.exe`，Mac 启 `$SHELL`（回退 zsh/bash）。不可续聊、不 discover 会话 id、不显示 ↻。
 
 ## 代码习惯
 
@@ -126,7 +132,6 @@ cd src-tauri && cargo test
 
 - 不要为修一边而改坏另一边；单边问题用平台分支。
 - 不要只按单一 OS 假设改 PATH、spawn、路径或续聊参数。
-- 不要重新加「终端」CLI。
 - 不要默认自动续聊打开会话。
 - 不要把 transcript / 会话内容存进 SeMa。
 - 不要引入重型前端框架堆栈（保持 Vite + React + Zustand 量级）。
