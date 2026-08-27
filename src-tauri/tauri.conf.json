@@ -1,6 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "SeMa",
+  "mainBinaryName": "SeMa",
   "version": "0.1.0",
   "identifier": "com.sema.app",
   "build": {
@@ -39,7 +40,8 @@
       "icons/icon.ico"
     ],
     "macOS": {
-      "minimumSystemVersion": "10.15"
+      "minimumSystemVersion": "10.15",
+      "bundleName": "SeMa"
     },
     "windows": {
       "nsis": {
