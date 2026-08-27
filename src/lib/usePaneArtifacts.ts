@@ -6,6 +6,7 @@ import {
   artifactsCollectReady,
   artifactsKey,
   artifactsScopeKey,
+  shouldRefreshArtifacts,
 } from "./artifactsRefresh";
 import {
   ARTIFACTS_REFRESH_MIN_MS,
