@@ -2,7 +2,7 @@
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "SeMa",
   "mainBinaryName": "SeMa",
-  "version": "0.1.0",
+  "version": "../package.json",
   "identifier": "com.sema.app",
   "build": {
     "frontendDist": "../dist",

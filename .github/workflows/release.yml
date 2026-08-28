@@ -43,6 +43,26 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      # Tag v1.2.3 → package / Cargo / bundle filenames use 1.2.3 (not the hardcoded 0.1.0).
+      - name: Set app version from tag
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            echo "Tag must look like v1.2.3 (got: ${GITHUB_REF_NAME})"
+            exit 1
+          fi
+          echo "Release version: $VERSION"
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+          node -e '
+            const fs = require("fs");
+            const version = process.argv[1];
+            let cargo = fs.readFileSync("src-tauri/Cargo.toml", "utf8");
+            cargo = cargo.replace(/^version = "[^"]*"/m, `version = "${version}"`);
+            fs.writeFileSync("src-tauri/Cargo.toml", cargo);
+            console.log("Cargo.toml version ->", version);
+          ' "$VERSION"
+
       - name: Build and upload release
         uses: tauri-apps/tauri-action@v1
         env:
@@ -56,7 +76,17 @@ jobs:
             - Windows: `*-setup.exe` (NSIS)
             - macOS: `*_aarch64.dmg` (Apple Silicon), `*_x64.dmg` (Intel)
 
-            Builds are unsigned.
+            Builds are **unsigned** (no Apple Developer ID / notarization yet).
+
+            ### macOS: “文件已损坏 / 无法打开”
+
+            Gatekeeper 会把从 GitHub 下载的未签名 App 标成隔离，提示“已损坏”其实不是文件坏了。安装到「应用程序」后在终端执行：
+
+            ```bash
+            xattr -cr /Applications/SeMa.app
+            ```
+
+            然后再打开 SeMa。正式对外分发需 Apple Developer 账号做签名 + 公证。
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}

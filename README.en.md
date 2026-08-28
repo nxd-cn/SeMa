@@ -40,6 +40,18 @@ npm run tauri:build
 
 Artifacts land under `src-tauri/target/release/bundle/` (macOS `.app`/`.dmg`; Windows NSIS when built on Windows).
 
+### macOS: “App is damaged and can’t be opened”
+
+GitHub Release macOS builds are **unsigned / not notarized**. Gatekeeper may show “damaged” — that is quarantine, not a corrupt file.
+
+After dragging `SeMa.app` into Applications, run:
+
+```bash
+xattr -cr /Applications/SeMa.app
+```
+
+Then open SeMa. Proper public distribution needs an Apple Developer ID signature and notarization.
+
 ## Usage
 
 ### New session & sidebar

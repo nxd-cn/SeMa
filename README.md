@@ -43,6 +43,18 @@ npm run tauri:build
 - macOS：`.app` 与 `.dmg`
 - Windows：NSIS `.exe`（在 Windows 主机上构建）
 
+### macOS：提示「文件已损坏」时
+
+从 GitHub Release 下载的 macOS 包目前**未签名 / 未公证**。系统可能提示「已损坏、无法打开」——这是 Gatekeeper 隔离，不是文件坏了。
+
+把 `SeMa.app` 拖进「应用程序」后，在终端执行：
+
+```bash
+xattr -cr /Applications/SeMa.app
+```
+
+然后再打开 SeMa。正式对外分发需 Apple Developer 账号做签名 + 公证。
+
 ## 使用说明
 
 ### 新建与侧栏
