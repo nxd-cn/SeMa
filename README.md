@@ -55,6 +55,19 @@ xattr -cr /Applications/SeMa.app
 
 然后再打开 SeMa。正式对外分发需 Apple Developer 账号做签名 + 公证。
 
+### 自动更新
+
+安装后的 SeMa 会在启动时检查 GitHub Release 是否有新版本；有则弹窗，点「立即更新」会下载安装并重启（无需先卸载）。
+
+发布流水线需要仓库 Secrets（本地私钥在 `.tauri/sema.key`，勿提交）：
+
+| Secret | 内容 |
+|--------|------|
+| `TAURI_SIGNING_PRIVATE_KEY` | `.tauri/sema.key` 全文 |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | 若生成密钥时设了密码则填写，否则可留空或不建 |
+
+推送 `v*` tag 后 CI 会签名更新包并上传 `latest.json`。
+
 ## 使用说明
 
 ### 新建与侧栏

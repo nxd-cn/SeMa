@@ -18,6 +18,7 @@ import { applyHorizontalWheel } from "./lib/horizontalWheel";
 import { newSessionKeyAction } from "./lib/newSessionKeys";
 import { reorderGroupList } from "./lib/reorderGroups";
 import { sidebarToggleKeyAction } from "./lib/sidebarToggleKeys";
+import { useAppUpdater } from "./lib/useAppUpdater";
 import {
   looksLikeTurnOutput,
   shouldRefreshBusyTimer,
@@ -113,6 +114,7 @@ export default function App() {
   const [cliModal, setCliModal] = useState<CliModalState>(null);
   const [confirm, setConfirm] = useState<ConfirmState>(null);
   const [ctxMenu, setCtxMenu] = useState<ContextMenuState>(null);
+  const updater = useAppUpdater();
 
   const showConfirm = useCallback((message: string) => {
     return new Promise<boolean>((resolve) => {
@@ -1321,6 +1323,46 @@ export default function App() {
               }}
             >
               取消
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div
+        id="update-modal"
+        className={`modal${updater.offer ? "" : " hidden"}`}
+        aria-hidden={updater.offer ? "false" : "true"}
+      >
+        <div className="modal-card update-modal-card">
+          <div className="modal-title">发现新版本 {updater.offer?.version}</div>
+          {updater.offer?.notes ? (
+            <pre className="update-notes">{updater.offer.notes}</pre>
+          ) : (
+            <p className="update-hint">有可用更新，可直接安装并重启，无需卸载。</p>
+          )}
+          {updater.status ? (
+            <p className="update-status">{updater.status}</p>
+          ) : null}
+          {updater.error ? (
+            <p className="update-error">{updater.error}</p>
+          ) : null}
+          <div className="modal-actions">
+            <button
+              id="update-ok"
+              type="button"
+              disabled={updater.busy}
+              autoFocus
+              onClick={() => void updater.install()}
+            >
+              {updater.busy ? "更新中…" : "立即更新"}
+            </button>
+            <button
+              id="update-cancel"
+              type="button"
+              disabled={updater.busy}
+              onClick={updater.dismiss}
+            >
+              稍后
             </button>
           </div>
         </div>

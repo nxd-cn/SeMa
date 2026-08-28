@@ -192,8 +192,47 @@ body {
   background: #094771;
   border-color: #0e639c;
 }
-.modal-actions button:hover {
+.modal-actions button#update-ok {
+  background: #094771;
+  border-color: #0e639c;
+}
+.modal-actions button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.modal-actions button:hover:not(:disabled) {
   filter: brightness(1.1);
+}
+.update-modal-card {
+  max-width: 420px;
+}
+.update-notes {
+  margin: 0 0 8px;
+  max-height: 160px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #ccc;
+  background: #1e1e1e;
+  border: 1px solid #3c3c3c;
+  border-radius: 4px;
+  padding: 8px;
+}
+.update-hint,
+.update-status {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: #bbb;
+  line-height: 1.4;
+}
+.update-error {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: #f48771;
+  line-height: 1.4;
 }
 #new-btn {
   width: 100%;

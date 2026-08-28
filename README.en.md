@@ -52,6 +52,19 @@ xattr -cr /Applications/SeMa.app
 
 Then open SeMa. Proper public distribution needs an Apple Developer ID signature and notarization.
 
+### Auto-update
+
+Installed SeMa checks GitHub Releases on launch. If a newer version exists, a dialog offers one-click download, install, and relaunch (no uninstall).
+
+Release CI needs these repository Secrets (private key is `.tauri/sema.key` locally — never commit it):
+
+| Secret | Value |
+|--------|--------|
+| `TAURI_SIGNING_PRIVATE_KEY` | Full contents of `.tauri/sema.key` |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Password if the key has one; otherwise omit or leave empty |
+
+Push a `v*` tag so CI signs updater artifacts and uploads `latest.json`.
+
 ## Usage
 
 ### New session & sidebar

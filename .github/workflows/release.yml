@@ -67,6 +67,10 @@ jobs:
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Required so createUpdaterArtifacts + latest.json.sig work.
+          # Repo secret: paste contents of local .tauri/sema.key (never commit the key).
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: SeMa ${{ github.ref_name }}
@@ -77,6 +81,7 @@ jobs:
             - macOS: `*_aarch64.dmg` (Apple Silicon), `*_x64.dmg` (Intel)
 
             Builds are **unsigned** (no Apple Developer ID / notarization yet).
+            After install, SeMa checks GitHub Releases for updates (requires signing secrets on CI).
 
             ### macOS: “文件已损坏 / 无法打开”
 

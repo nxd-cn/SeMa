@@ -11,4 +11,7 @@ src-tauri/target/
 .DS_Store
 **/.DS_Store
 *.tsbuildinfo
+# Tauri updater private key — never commit (public key lives in tauri.conf.json)
+.tauri/*.key
+.tauri/*.key.pub
 
