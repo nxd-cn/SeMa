@@ -62,7 +62,7 @@ cd src-tauri && cargo test
 
 - **PATH**：Windows `where` + 优先 `.cmd/.exe`；macOS/Linux `which`。Mac GUI 启动时 PATH 很窄：`platform::enrich_path_for_gui_launch` 补 Homebrew、`~/.local/bin`、`~/.npm-global/bin`、`~/bin`、OpenCode 官方安装脚本默认的 `~/.opencode/bin`、以及 Kimi Code 官方安装脚本默认的 `~/.kimi-code/bin`（不改 Windows）。**Windows GUI**：`where` / git 的 `cmd.exe` 探测必须设 `CREATE_NO_WINDOW`（对齐旧 Electron `windowsHide`），否则启动/底栏会连闪黑框并拖慢感知启动
 - **空布局启动**：两边无 `layout` 时都保持空白（关光全部会话会清 `layout`/`split`/`last`）
-- **启动首帧**：两边 `backgroundColor: #1e1e1e` + `index.html` 内联同色兜底。**仅 Windows**（`tauri.windows.conf.json`）主窗 `visible: false`，前端首帧 paint 后再 `show()`（修安装包 WebView2 白屏）。**macOS 不要** `visible: false`——hidden + `show()` 在 WKWebView 上不可靠，窗口会一直不出现。`detect_tools` 在 setup 后台线程跑，不挡首帧（`cli_list` 在 tools 仍空时会 refresh）
+- **启动首帧**：两边 `backgroundColor: #1e1e1e` + `index.html` 内联同色兜底。**仅 Windows**（`tauri.windows.conf.json`）主窗 `visible: false`，前端首帧 paint 后再 `show()`（修安装包 WebView2 白屏）。**macOS 不要** `visible: false`——hidden + `show()` 在 WKWebView 上不可靠，窗口会一直不出现。平台 conf 按 RFC 7396 **整段替换** `app.windows` 数组，所以 `tauri.windows.conf.json` / `tauri.macos.conf.json` 必须重写完整窗口字段（含 `title: "SeMa"`），不能只写差分。`detect_tools` 在 setup 后台线程跑，不挡首帧（`cli_list` 在 tools 仍空时会 refresh）
 - **图标**：`src-tauri/icons/`（打包必需：`32x32` / `128x128` / `128x128@2x` / `icon.icns` / `icon.ico`；Win 满幅源 `icon.png`；Mac Dock 源 `icon-mac.png` → `icon.icns`）。勿提交 Store/UWP/`ios`/`android` 多余尺寸。换标后须重编（dev 缓存可能仍嵌旧图；Mac 可 `cargo clean -p sema`）
 - **窗口顶栏**：仅 macOS — `titleBarStyle: Overlay`、`MacTitleBar` 高 38px 与红绿灯同条；Win 保持侧栏 `+` + `#cli-toolbar`。设计见 `docs/superpowers/specs/2026-08-08-macos-titlebar-toolbar-design.md`
 - **Mac 绿钮「全屏」**：关闭 Spaces 全屏（`FullScreenNone`），绿钮切换沉浸缩放（铺满屏 + 藏菜单栏/Dock，红绿灯仍留在顶栏）；再点按保存的 frame 还原。勿再走系统 Spaces（会藏红绿灯到顶部热区）
