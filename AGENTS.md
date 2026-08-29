@@ -74,7 +74,7 @@ cd src-tauri && cargo test
 - **OpenCode 数据目录**：两边都先查 `~/.local/share/opencode`；Mac 另试 Application Support；Windows 另试 `%APPDATA%\opencode`
 - **OpenCode 续聊 argv**：优先 `--session <id>`；查不到 id 时 Windows 回退 `--continue`，macOS 空 argv
 - **Kimi 续聊 argv**：优先 `--session <id>`；查不到 id 时 Windows 与 macOS 均回退 `--continue`
-- **Kimi 启动授信**：`trust_args` 注入 `--auto`（自动权限模式；Win + Mac 相同；与 `--yolo` 互斥，勿同时加）
+- **Kimi 启动授信**：`trust_args` 注入 `--yolo`（自动批准工具调用；Win + Mac 相同；与 `--auto` 互斥，勿同时加）
 - **续聊路径探测（Mac）**：`resolve` + `realpath` 候选；Claude / Cursor hash / Pi / OpenCode 均走候选
 - **Cursor 会话绑定**：只认存在 `store.db` 的目录；无效 id 的 ↻ 回退 last-in-cwd（OpenCode 在 Mac 仍不传 `--continue`）
 - **同目录多分栏续聊**：优先绑定 `cliSessionId`；否则最新未占用 + claim；**新开栏不要在 spawn 时 discover**，仅该栏用户提交后 discover。CLI `/clear`（`/new`/`/reset`）会换新会话 id：输入检测后立刻清绑定并 rediscover；提交后短轮询 + 回合 idle / ↻ / 恢复时 `follow` 到更新的未占用 id

@@ -7,8 +7,8 @@ static TRUST_ARGS: LazyLock<HashMap<&'static str, Vec<&'static str>>> = LazyLock
     let mut m = HashMap::new();
     m.insert("cursor", vec!["--trust"]);
     m.insert("gemini", vec!["--skip-trust"]);
-    // Kimi Code: auto permission mode — approvals handled without prompts (Win + Mac).
-    m.insert("kimi", vec!["--auto"]);
+    // Kimi Code: YOLO — auto-approve tool calls (Win + Mac). Mutually exclusive with --auto.
+    m.insert("kimi", vec!["--yolo"]);
     m
 });
 
@@ -33,7 +33,7 @@ mod tests {
     fn trust_cursor_gemini_kimi() {
         assert_eq!(trust_args_for("cursor"), vec!["--trust".to_string()]);
         assert_eq!(trust_args_for("gemini"), vec!["--skip-trust".to_string()]);
-        assert_eq!(trust_args_for("kimi"), vec!["--auto".to_string()]);
+        assert_eq!(trust_args_for("kimi"), vec!["--yolo".to_string()]);
         assert!(trust_args_for("claude").is_empty());
     }
 
