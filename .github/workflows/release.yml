@@ -4,11 +4,15 @@ on:
   push:
     tags:
       - "v*"
+    # Explicitly ignore all branch pushes. GitHub docs say tags-only should
+    # already skip branches, but master pushes were still opening empty
+    # failed runs (0 jobs) in this repo.
+    branches-ignore:
+      - "**"
 
 jobs:
   publish-tauri:
-    # Guard: GitHub sometimes records a 0-job failed run on plain branch
-    # pushes even with tags: v* above. Skip the matrix unless this is a v* tag.
+    # Belt-and-suspenders: never run the matrix unless this is a v* tag.
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
