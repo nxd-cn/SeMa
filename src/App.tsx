@@ -7,6 +7,7 @@ import {
 } from "react";
 import { tui, type ToolInfo } from "./api/tui";
 import ActivityToast from "./components/ActivityToast";
+import ChromeVScrollbar from "./components/ChromeVScrollbar";
 import CliToolbar from "./components/CliToolbar";
 import ContextMenu, { type ContextMenuState } from "./components/ContextMenu";
 import MacTitleBar from "./components/MacTitleBar";
@@ -110,6 +111,7 @@ export default function App() {
   const colDrag = useRef<ColDrag | null>(null);
   const sidebarDragging = useRef(false);
   const termColumnsRef = useRef<HTMLDivElement | null>(null);
+  const updateNotesRef = useRef<HTMLElement | null>(null);
 
   const [cliModal, setCliModal] = useState<CliModalState>(null);
   const [confirm, setConfirm] = useState<ConfirmState>(null);
@@ -1336,7 +1338,18 @@ export default function App() {
         <div className="modal-card update-modal-card">
           <div className="modal-title">发现新版本 {updater.offer?.version}</div>
           {updater.offer?.notes ? (
-            <pre className="update-notes">{updater.offer.notes}</pre>
+            <div className="update-notes-shell chrome-vscroll-shell">
+              <pre
+                ref={updateNotesRef}
+                className="update-notes chrome-vscroll-port"
+              >
+                {updater.offer.notes}
+              </pre>
+              <ChromeVScrollbar
+                scrollRef={updateNotesRef}
+                layoutKey={updater.offer.notes}
+              />
+            </div>
           ) : (
             <p className="update-hint">有可用更新，可直接安装并重启，无需卸载。</p>
           )}

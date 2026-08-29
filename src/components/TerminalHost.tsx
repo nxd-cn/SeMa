@@ -153,13 +153,16 @@ export default function TerminalHost({
     if (!host) return;
 
     // Cursor / Claude / Ink TUIs draw their own caret (inverse cell). They often
-    // leave the hardware cursor parked on the row under the input — with
-    // cursorBlink that shows as a second flashing caret. Match bg so the
-    // hardware cursor is invisible; TUIs still look correct.
+    // park the hardware cursor on the same cell (or the row under the input).
+    // A bg-colored *block* cursor uses !important fill and erases that inverse
+    // cell — caret vanishes while typing still works. Use bar + bg-matched
+    // cursor color: no cell fill, and the 1px bar is invisible on the dark bg.
     const bg = "#0c0c0c";
     const term = new Terminal({
       cursorBlink: false,
-      cursorStyle: "block",
+      cursorStyle: "bar",
+      cursorWidth: 1,
+      cursorInactiveStyle: "outline",
       fontFamily:
         'Menlo, Monaco, Cascadia Mono, Consolas, "Courier New", monospace',
       fontSize: 11,

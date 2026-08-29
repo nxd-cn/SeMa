@@ -209,19 +209,25 @@ body {
 .update-modal-card {
   max-width: 420px;
 }
-.update-notes {
+.update-notes-shell {
   margin: 0 0 8px;
   max-height: 160px;
-  overflow: auto;
+  background: #1e1e1e;
+  border: 1px solid #3c3c3c;
+  border-radius: 4px;
+}
+.update-notes {
+  margin: 0;
+  max-height: 160px;
   white-space: pre-wrap;
   word-break: break-word;
   font: inherit;
   font-size: 12px;
   line-height: 1.4;
   color: #ccc;
-  background: #1e1e1e;
-  border: 1px solid #3c3c3c;
-  border-radius: 4px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
   padding: 8px;
 }
 .update-hint,

@@ -67,7 +67,7 @@ cd src-tauri && cargo test
 - **窗口顶栏**：仅 macOS — `titleBarStyle: Overlay`、`MacTitleBar` 高 38px 与红绿灯同条；Win 保持侧栏 `+` + `#cli-toolbar`。设计见 `docs/superpowers/specs/2026-08-08-macos-titlebar-toolbar-design.md`
 - **Mac 绿钮「全屏」**：关闭 Spaces 全屏（`FullScreenNone`），绿钮切换沉浸缩放（铺满屏 + 藏菜单栏/Dock，红绿灯仍留在顶栏）；再点按保存的 frame 还原。勿再走系统 Spaces（会藏红绿灯到顶部热区）
 - **Git 分支底栏**：每栏底部固定一行；有分支显示分支图标+名；无 git / 失败显示 `~`（无图标）。只读，不可切换分支。命令 `git_branch` 永不因 git 缺失而 reject
-- **xterm 硬件光标**：Ink/TUI（Cursor 等）自绘光标时硬件光标常停在输入框下；`cursorBlink: false` 且光标色=背景，避免双光标闪烁
+- **xterm 硬件光标**：Ink/TUI（Cursor 等）自绘反色光标；硬件光标常叠在同一格。勿用与背景同色的 `block`（`cursorBlink: false` 时 `!important` 铺底会盖掉反色格，表现为「能输入但无光标」）。用 `cursorStyle: "bar"` + 光标色=背景（无单元格填充，暗底上 1px 条不可见）
 - **Spawn**：Windows 无扩展名 shim 时走 `cmd.exe /c`；Unix 直接 `tool.path` + args
 - **OpenCode 数据目录**：两边都先查 `~/.local/share/opencode`；Mac 另试 Application Support；Windows 另试 `%APPDATA%\opencode`
 - **OpenCode 续聊 argv**：优先 `--session <id>`；查不到 id 时 Windows 回退 `--continue`，macOS 空 argv
