@@ -162,7 +162,7 @@ export default function TerminalHost({
       cursorStyle: "block",
       fontFamily:
         'Menlo, Monaco, Cascadia Mono, Consolas, "Courier New", monospace',
-      fontSize: 13,
+      fontSize: 11,
       theme: {
         background: bg,
         foreground: "#cccccc",
