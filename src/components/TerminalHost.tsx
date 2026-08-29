@@ -10,6 +10,11 @@ import {
   MIN_FIT_ROWS,
   proposeFitDimensions,
 } from "../lib/termFitSafe";
+import {
+  captureTermScroll,
+  restoreTermScroll,
+  termOwnsFocus,
+} from "../lib/termScroll";
 import { attachCapsLockImeFix } from "../lib/xtermCapsLockIme";
 
 export type TermHandle = {
@@ -98,6 +103,10 @@ export default function TerminalHost({
     if (!term || !fit || !host) return;
     if (!opts?.force && !visibleRef.current) return;
 
+    // Sibling split (top-right CLI) shrinks this host; layout can zero
+    // scrollTop and xterm then jumps ydisp to the top of scrollback.
+    const scrollSnap = captureTermScroll(term.buffer.active);
+
     const core = term as unknown as CoreDims;
     const dims = core._core?._renderService?.dimensions;
     const cellW = dims?.css?.cell?.width ?? 0;
@@ -143,6 +152,8 @@ export default function TerminalHost({
     } catch {
       /* ignore */
     }
+
+    restoreTermScroll(term, scrollSnap);
 
     if (cols < MIN_FIT_COLS || rows < MIN_FIT_ROWS) return;
     void tui.resize(sessionId, cols, rows);
@@ -327,8 +338,13 @@ export default function TerminalHost({
             fitRoRaf = requestAnimationFrame(() => {
               fitRoRaf = 0;
               if (!visibleRef.current) return;
+              const keepFocus = termOwnsFocus(
+                term.textarea,
+                document.activeElement
+              );
               fitPane();
-              focusTerm(term);
+              // Sibling pane resize must not steal focus from the new CLI.
+              if (keepFocus) focusTerm(term);
             });
           })
         : null;
@@ -338,8 +354,9 @@ export default function TerminalHost({
     const fitTimers = [0, 50, 200, 500].map((ms) =>
       window.setTimeout(() => {
         if (!visibleRef.current) return;
+        const keepFocus = termOwnsFocus(term.textarea, document.activeElement);
         fitPane();
-        focusTerm(term);
+        if (keepFocus || ms === 0) focusTerm(term);
       }, ms)
     );
 
