@@ -16,6 +16,7 @@ mod resume;
 mod spawn;
 mod state;
 mod trust_args;
+mod webview_cache;
 
 use std::sync::Arc;
 
@@ -27,6 +28,7 @@ use crate::platform::enrich_path_for_gui_launch;
 use crate::prefs::write_cli_cache;
 use crate::pty::kill_all;
 use crate::state::AppState;
+use crate::webview_cache::bust_if_version_changed;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -56,6 +58,11 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             if let Some(win) = app.get_webview_window("main") {
                 mac_traffic_lights::configure_window(&win);
+            }
+            // After updater install, WebView may still serve cached index/JS/CSS
+            // (no right-click refresh). Clear once per package version bump.
+            if let Some(win) = app.get_webview_window("main") {
+                bust_if_version_changed(app.handle(), &win);
             }
             // Do not block setup/first paint on PATH probes (where/which).
             let handle = app.handle().clone();
