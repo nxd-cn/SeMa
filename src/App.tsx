@@ -41,6 +41,8 @@ const ACTIVITY_CLIS = new Set([
   "kimi",
 ]);
 const IDLE_MS = 2500;
+/** After pulse ends, keep activityArmed so late tokens after a thinking gap can re-pulse. */
+const ARM_HOLD_MS = 5 * 60 * 1000;
 const MIN_FLEX = 0.15;
 
 /** Survive React StrictMode remount so restore does not double-spawn. */
@@ -88,6 +90,9 @@ export default function App() {
     window.setTimeout(run, 500);
   };
   const idleTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(
+    new Map()
+  );
+  const armHoldTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(
     new Map()
   );
   const artifactsIdle = useRef<Map<string, () => void>>(new Map());
@@ -223,18 +228,42 @@ export default function App() {
     useAppStore.getState().removeToast(groupId);
   }, []);
 
+  const clearGroupIdleTimer = useCallback((groupId: string) => {
+    const timer = idleTimers.current.get(groupId);
+    if (timer) clearTimeout(timer);
+    idleTimers.current.delete(groupId);
+  }, []);
+
+  const clearGroupArmHold = useCallback((groupId: string) => {
+    const timer = armHoldTimers.current.get(groupId);
+    if (timer) clearTimeout(timer);
+    armHoldTimers.current.delete(groupId);
+  }, []);
+
+  const disarmGroupActivity = useCallback((groupId: string) => {
+    armHoldTimers.current.delete(groupId);
+    const s = useAppStore.getState();
+    const g = s.groups.find((x) => x.id === groupId);
+    if (!g || g.busy) return;
+    for (const pid of g.paneIds) {
+      s.updatePane(pid, { activityArmed: false });
+    }
+  }, []);
+
   const clearGroupActivity = useCallback(
     (groupId: string) => {
-      const timer = idleTimers.current.get(groupId);
-      if (timer) clearTimeout(timer);
-      idleTimers.current.delete(groupId);
+      clearGroupIdleTimer(groupId);
+      clearGroupArmHold(groupId);
       const s = useAppStore.getState();
       s.setBusy(groupId, false);
+      for (const pid of s.groups.find((g) => g.id === groupId)?.paneIds || []) {
+        s.updatePane(pid, { activityArmed: false });
+      }
       s.setUnread(groupId, false);
       dismissToast(groupId);
       syncBadge();
     },
-    [dismissToast, syncBadge]
+    [clearGroupArmHold, clearGroupIdleTimer, dismissToast, syncBadge]
   );
 
   const markGroupIdle = useCallback(
@@ -244,8 +273,15 @@ export default function App() {
       const g = s.groups.find((x) => x.id === groupId);
       if (!g || !g.busy) return;
       s.setBusy(groupId, false);
+      // Keep activityArmed across thinking gaps: early TUI echo can start the
+      // idle clock, then the model is silent > IDLE_MS before real tokens.
+      // Soft-disarm later so post-turn redraws do not pulse forever.
+      clearGroupArmHold(groupId);
+      armHoldTimers.current.set(
+        groupId,
+        setTimeout(() => disarmGroupActivity(groupId), ARM_HOLD_MS)
+      );
       for (const pid of g.paneIds) {
-        s.updatePane(pid, { activityArmed: false });
         void followCliSessionRef.current?.(pid, { timeoutMs: 0 });
         artifactsIdle.current.get(pid)?.();
       }
@@ -254,7 +290,7 @@ export default function App() {
       s.addToast({ groupId, label: groupLabel(g, s.panes) });
       syncBadge();
     },
-    [syncBadge, userLookingAtGroup]
+    [clearGroupArmHold, disarmGroupActivity, syncBadge, userLookingAtGroup]
   );
 
   const noteActivity = useCallback(
@@ -266,6 +302,7 @@ export default function App() {
       if (!group) return;
       const qualifying = looksLikeTurnOutput(data);
       if (!shouldRefreshBusyTimer(!!group.busy, data, qualifying)) return;
+      clearGroupArmHold(group.id);
       s.setBusy(group.id, true);
       const prev = idleTimers.current.get(group.id);
       if (prev) clearTimeout(prev);
@@ -274,7 +311,7 @@ export default function App() {
         setTimeout(() => markGroupIdle(group.id), IDLE_MS)
       );
     },
-    [markGroupIdle]
+    [clearGroupArmHold, markGroupIdle]
   );
 
   const bindCliSession = useCallback(
@@ -377,11 +414,23 @@ export default function App() {
       const s = useAppStore.getState();
       const v = s.panes[sessionId];
       if (!v) return;
-      if (ACTIVITY_CLIS.has(v.cliId)) {
-        s.updatePane(sessionId, { activityArmed: true });
+      const group = s.groups.find((g) => g.paneIds.includes(sessionId));
+      if (ACTIVITY_CLIS.has(v.cliId) && group) {
+        // Drop a previous turn's pending idle so it cannot disarm this submit
+        // before the next PTY chunk arrives.
+        clearGroupIdleTimer(group.id);
+        clearGroupArmHold(group.id);
+        if (group.busy) {
+          idleTimers.current.set(
+            group.id,
+            setTimeout(() => markGroupIdle(group.id), IDLE_MS)
+          );
+        }
       }
       const abandonResumeOffer = !!v.resumeOfferPending;
+      const armActivity = ACTIVITY_CLIS.has(v.cliId);
       s.updatePane(sessionId, {
+        ...(armActivity ? { activityArmed: true } : {}),
         continueDismissed: true,
         resumeOfferPending: false,
       });
@@ -399,7 +448,14 @@ export default function App() {
         void followCliSession(sessionId);
       }
     },
-    [bindCliSession, followCliSession, persistLayout]
+    [
+      bindCliSession,
+      clearGroupArmHold,
+      clearGroupIdleTimer,
+      followCliSession,
+      markGroupIdle,
+      persistLayout,
+    ]
   );
 
   const setActivePane = useCallback(
@@ -1103,11 +1159,13 @@ export default function App() {
     };
   }, [persistLayout]);
 
-  // Cleanup idle timers on unmount
+  // Cleanup activity timers on unmount
   useEffect(() => {
     return () => {
       for (const t of idleTimers.current.values()) clearTimeout(t);
       idleTimers.current.clear();
+      for (const t of armHoldTimers.current.values()) clearTimeout(t);
+      armHoldTimers.current.clear();
       artifactsIdle.current.clear();
       void tui.setUnreadBadge(0);
     };
