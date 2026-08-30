@@ -5,9 +5,10 @@
  * Usage: node scripts/build-latest-json.mjs releases/<version>
  *
  * Expects env:
- *   VERSION   - semver without v (e.g. 1.2.3)
- *   TAG       - git tag (e.g. v1.2.3)
+ *   VERSION    - semver without v (e.g. 1.2.3)
+ *   TAG        - git tag (e.g. v1.2.3)
  *   REPOSITORY - owner/repo
+ *   NOTES      - optional release notes for the updater UI (defaults to "SeMa <tag>")
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -16,6 +17,7 @@ const dir = process.argv[2];
 const version = process.env.VERSION;
 const tag = process.env.TAG;
 const repository = process.env.REPOSITORY;
+const notesEnv = (process.env.NOTES || "").trim();
 
 if (!dir || !version || !tag || !repository) {
   console.error(
@@ -70,7 +72,7 @@ for (const [key, { file }] of Object.entries(platforms)) {
 
 const latest = {
   version,
-  notes: `SeMa ${tag}`,
+  notes: notesEnv || `SeMa ${tag}`,
   pub_date: new Date().toISOString(),
   platforms: outPlatforms,
 };
