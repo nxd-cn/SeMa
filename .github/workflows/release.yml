@@ -1,65 +1,103 @@
+# Build macOS / Windows installers and publish a GitHub Release.
+#
+# Trigger: push a v* tag (e.g. v1.2.3), or run this workflow manually
+# (workflow_dispatch uses package.json version as the release tag).
+#
+# Updater signing private key must be the Repository secret
+# TAURI_SIGNING_PRIVATE_KEY (contents of gitignored .tauri/sema.key).
+# Never commit the key, never upload it as an artifact, never echo it.
 name: release
 
 on:
   push:
     tags:
       - "v*"
-    # Explicitly ignore all branch pushes. GitHub docs say tags-only should
-    # already skip branches, but master pushes were still opening empty
-    # failed runs (0 jobs) in this repo.
-    branches-ignore:
-      - "**"
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
 
 jobs:
-  publish-tauri:
-    # Belt-and-suspenders: never run the matrix unless this is a v* tag.
-    if: startsWith(github.ref, 'refs/tags/v')
-    permissions:
-      contents: write
+  version:
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      tag: ${{ steps.meta.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - id: meta
+        name: Resolve version
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            TAG="${{ github.ref_name }}"
+            VERSION="${TAG#v}"
+            if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+              echo "error: tag must look like v1.2.3 (got: ${TAG})" >&2
+              exit 1
+            fi
+            # Tag is source of truth: sync into package.json / Cargo.toml for this build.
+            npm version "$VERSION" --no-git-tag-version --allow-same-version
+            node -e '
+              const fs = require("fs");
+              const version = process.argv[1];
+              let cargo = fs.readFileSync("src-tauri/Cargo.toml", "utf8");
+              cargo = cargo.replace(/^version = "[^"]*"/m, `version = "${version}"`);
+              fs.writeFileSync("src-tauri/Cargo.toml", cargo);
+            ' "$VERSION"
+          else
+            VERSION="$(node -p "require('./package.json').version")"
+            TAG="v${VERSION}"
+            if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+              echo "error: package.json version must look like 1.2.3 (got: ${VERSION})" >&2
+              exit 1
+            fi
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "Building ${TAG}"
+
+  macos:
+    needs: version
     strategy:
       fail-fast: false
       matrix:
         include:
-          - platform: macos-latest
-            args: --target aarch64-apple-darwin
-          - platform: macos-latest
-            args: --target x86_64-apple-darwin
-          - platform: windows-latest
-            args: ""
-    runs-on: ${{ matrix.platform }}
+          - target: aarch64-apple-darwin
+            arch: aarch64
+          - target: x86_64-apple-darwin
+            arch: x64
+    runs-on: macos-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v7
+      - uses: actions/checkout@v4
 
-      - name: Setup Node
-        uses: actions/setup-node@v6
+      - uses: actions/setup-node@v4
         with:
-          node-version: lts/*
+          node-version: "22"
           cache: npm
 
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          targets: ${{ matrix.target }}
 
-      - name: Rust cache
-        uses: swatinem/rust-cache@v2
+      - uses: swatinem/rust-cache@v2
         with:
           workspaces: "./src-tauri -> target"
+          key: macos-${{ matrix.target }}
 
-      - name: Install frontend dependencies
-        run: npm ci
-
-      # Tag v1.2.3 → package / Cargo / bundle filenames use 1.2.3 (not the hardcoded 0.1.0).
-      - name: Set app version from tag
-        shell: bash
+      - name: Apply release version
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
-            echo "Tag must look like v1.2.3 (got: ${GITHUB_REF_NAME})"
-            exit 1
-          fi
-          echo "Release version: $VERSION"
+          set -euo pipefail
+          VERSION="${{ needs.version.outputs.version }}"
           npm version "$VERSION" --no-git-tag-version --allow-same-version
           node -e '
             const fs = require("fs");
@@ -70,73 +108,267 @@ jobs:
             console.log("Cargo.toml version ->", version);
           ' "$VERSION"
 
-      # Prefer existing Release body → GitHub auto-generated notes → fixed fallback.
-      # Notes land in latest.json and the in-app update dialog.
-      - name: Resolve release notes
-        id: notes
-        shell: bash
+      - name: Install frontend deps
+        run: npm ci
+
+      - name: Require updater signing secret
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [[ -z "${TAURI_SIGNING_PRIVATE_KEY}" ]]; then
+            echo "error: repository secret TAURI_SIGNING_PRIVATE_KEY is not set" >&2
+            exit 1
+          fi
+
+      - name: Build app + DMG
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: npm run tauri -- build --target ${{ matrix.target }} --bundles app,dmg
+
+      - name: Stage release files
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          ARCH: ${{ matrix.arch }}
+          TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
-          NOTES=""
+          OUT="${GITHUB_WORKSPACE}/releases/${VERSION}"
+          BUNDLE="${GITHUB_WORKSPACE}/src-tauri/target/${TARGET}/release/bundle"
+          mkdir -p "$OUT"
 
-          if EXISTING=$(gh release view "${GITHUB_REF_NAME}" --json body -q .body 2>/dev/null); then
-            if [[ -n "$(printf '%s' "$EXISTING" | tr -d '[:space:]')" ]]; then
-              NOTES="$EXISTING"
-              echo "Using existing Release notes"
+          shopt -s nullglob
+          tar_src=""
+          for cand in "$BUNDLE/macos/SeMa.app.tar.gz" "$BUNDLE/macos"/SeMa*.app.tar.gz; do
+            if [[ -f "$cand" && "$cand" != *.sig ]]; then
+              tar_src="$cand"
+              break
             fi
+          done
+          if [[ -z "$tar_src" ]]; then
+            echo "error: updater archive not found under $BUNDLE/macos" >&2
+            ls -la "$BUNDLE/macos" || true
+            exit 1
+          fi
+          if [[ ! -f "${tar_src}.sig" ]]; then
+            echo "error: missing updater signature ${tar_src}.sig" >&2
+            exit 1
+          fi
+          dest_tar="$OUT/SeMa_${VERSION}_macOS_${ARCH}.app.tar.gz"
+          cp -f "$tar_src" "$dest_tar"
+          cp -f "${tar_src}.sig" "${dest_tar}.sig"
+
+          app="$BUNDLE/macos/SeMa.app"
+          if [[ ! -d "$app" ]]; then
+            echo "warning: SeMa.app missing after build; extracting from Tauri DMG to ad-hoc sign"
+            dmg=""
+            for cand in "$BUNDLE/dmg/SeMa_${VERSION}_${ARCH}.dmg" "$BUNDLE/dmg"/SeMa_"${VERSION}"_*.dmg; do
+              if [[ -f "$cand" ]]; then
+                dmg="$cand"
+                break
+              fi
+            done
+            if [[ -z "$dmg" ]]; then
+              echo "error: neither SeMa.app nor DMG found" >&2
+              exit 1
+            fi
+            mount="$(mktemp -d)"
+            hdiutil attach "$dmg" -nobrowse -readonly -mountpoint "$mount"
+            cp -R "$mount/SeMa.app" "$BUNDLE/macos/SeMa.app"
+            hdiutil detach "$mount" -quiet
+            rmdir "$mount" || true
+            app="$BUNDLE/macos/SeMa.app"
           fi
 
-          if [[ -z "$(printf '%s' "$NOTES" | tr -d '[:space:]')" ]]; then
-            NOTES=$(gh api "repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
-              -f tag_name="${GITHUB_REF_NAME}" \
-              -f target_commitish="${GITHUB_SHA}" \
-              --jq .body 2>/dev/null || true)
-            if [[ -n "$(printf '%s' "$NOTES" | tr -d '[:space:]')" ]]; then
-              echo "Using GitHub-generated Release notes"
-            fi
+          echo "==> Ad-hoc signing $app"
+          codesign --force --deep --sign - "$app"
+          codesign --verify --deep --strict "$app"
+
+          dest_dmg="$OUT/SeMa_${VERSION}_macOS_${ARCH}.dmg"
+          stage="$(mktemp -d)"
+          cp -R "$app" "$stage/SeMa.app"
+          ln -sf /Applications "$stage/Applications"
+          hdiutil create -volname "SeMa" -srcfolder "$stage" -ov -format UDZO "$dest_dmg"
+          rm -rf "$stage"
+          ls -lh "$OUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.arch }}
+          path: releases/**
+          if-no-files-found: error
+
+  windows:
+    needs: version
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+          key: windows-x64
+
+      - name: Apply release version
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ needs.version.outputs.version }}"
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+          node -e '
+            const fs = require("fs");
+            const version = process.argv[1];
+            let cargo = fs.readFileSync("src-tauri/Cargo.toml", "utf8");
+            cargo = cargo.replace(/^version = "[^"]*"/m, `version = "${version}"`);
+            fs.writeFileSync("src-tauri/Cargo.toml", cargo);
+            console.log("Cargo.toml version ->", version);
+          ' "$VERSION"
+
+      - name: Install frontend deps
+        run: npm ci
+
+      - name: Require updater signing secret
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        shell: bash
+        run: |
+          if [[ -z "${TAURI_SIGNING_PRIVATE_KEY}" ]]; then
+            echo "error: repository secret TAURI_SIGNING_PRIVATE_KEY is not set" >&2
+            exit 1
           fi
 
-          if [[ -z "$(printf '%s' "$NOTES" | tr -d '[:space:]')" ]]; then
-            echo "No Release notes; using fixed fallback"
-            NOTES=$(cat <<'EOF'
+      - name: Build NSIS
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: npm run tauri -- build --bundles nsis
+
+      - name: Stage release files
+        shell: bash
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          OUT="${GITHUB_WORKSPACE}/releases/${VERSION}"
+          mkdir -p "$OUT"
+          NSIS="src-tauri/target/release/bundle/nsis"
+          shopt -s nullglob
+          setups=( "$NSIS"/SeMa_"${VERSION}"_*-setup.exe "$NSIS"/*-setup.exe )
+          setup_src=""
+          for cand in "${setups[@]}"; do
+            if [[ -f "$cand" && "$cand" != *.sig ]]; then
+              setup_src="$cand"
+              break
+            fi
+          done
+          if [[ -z "$setup_src" ]]; then
+            echo "error: NSIS setup.exe not found under $NSIS" >&2
+            ls -la "$NSIS" || true
+            exit 1
+          fi
+          dest_setup="$OUT/SeMa_${VERSION}_Windows_x64-setup.exe"
+          cp -f "$setup_src" "$dest_setup"
+          if [[ -f "${setup_src}.sig" ]]; then
+            cp -f "${setup_src}.sig" "${dest_setup}.sig"
+          else
+            echo "error: missing updater signature ${setup_src}.sig" >&2
+            echo "  Set repository secret TAURI_SIGNING_PRIVATE_KEY to the contents of .tauri/sema.key" >&2
+            exit 1
+          fi
+          ls -lh "$OUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64
+          path: releases/**
+          if-no-files-found: error
+
+  publish:
+    needs: [version, macos, windows]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          path: ${{ github.workspace }}
+
+      - name: Build latest.json
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          TAG: ${{ needs.version.outputs.tag }}
+          REPOSITORY: ${{ github.repository }}
+        run: node scripts/build-latest-json.mjs "releases/${VERSION}"
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+          TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          DIR="releases/${VERSION}"
+          ls -lh "$DIR"
+
+          files=(
+            "$DIR/SeMa_${VERSION}_macOS_aarch64.dmg"
+            "$DIR/SeMa_${VERSION}_macOS_x64.dmg"
+            "$DIR/SeMa_${VERSION}_Windows_x64-setup.exe"
+            "$DIR/SeMa_${VERSION}_macOS_aarch64.app.tar.gz"
+            "$DIR/SeMa_${VERSION}_macOS_aarch64.app.tar.gz.sig"
+            "$DIR/SeMa_${VERSION}_macOS_x64.app.tar.gz"
+            "$DIR/SeMa_${VERSION}_macOS_x64.app.tar.gz.sig"
+            "$DIR/SeMa_${VERSION}_Windows_x64-setup.exe.sig"
+            "$DIR/latest.json"
+          )
+          for f in "${files[@]}"; do
+            if [[ ! -f "$f" ]]; then
+              echo "error: missing release asset $f" >&2
+              exit 1
+            fi
+          done
+
+          notes=$(cat <<EOF
 有可用更新，可直接安装并重启，无需卸载。
 
-- Windows: `*-setup.exe` (NSIS)
-- macOS: `*_aarch64.dmg`（Apple Silicon）、`*_x64.dmg`（Intel）
+- Windows: \`SeMa_${VERSION}_Windows_x64-setup.exe\` (NSIS)
+- macOS: \`SeMa_${VERSION}_macOS_aarch64.dmg\`（Apple Silicon）、\`SeMa_${VERSION}_macOS_x64.dmg\`（Intel）
 
 ### macOS：提示「文件已损坏 / 无法打开」时
 
 安装到「应用程序」后在终端执行：
 
-```bash
+\`\`\`bash
 xattr -cr /Applications/SeMa.app
-```
+\`\`\`
 
 然后再打开 SeMa。
 EOF
 )
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "${files[@]}" --clobber
+            gh release edit "$TAG" --notes "$notes"
+          else
+            create_args=(--title "SeMa ${TAG}" --notes "$notes")
+            if [[ "${{ github.ref_type }}" == "tag" ]]; then
+              create_args+=(--verify-tag)
+            else
+              create_args+=(--target "$GITHUB_SHA")
+            fi
+            gh release create "$TAG" "${create_args[@]}" "${files[@]}"
           fi
-
-          {
-            echo "body<<EOF"
-            printf '%s\n' "$NOTES"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Build and upload release
-        uses: tauri-apps/tauri-action@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Required so createUpdaterArtifacts + latest.json.sig work.
-          # Repo secret: paste contents of local .tauri/sema.key (never commit the key).
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        with:
-          tagName: ${{ github.ref_name }}
-          releaseName: SeMa ${{ github.ref_name }}
-          releaseBody: ${{ steps.notes.outputs.body }}
-          releaseDraft: false
-          prerelease: false
-          args: ${{ matrix.args }}

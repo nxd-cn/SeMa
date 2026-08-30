@@ -66,7 +66,7 @@ xattr -cr /Applications/SeMa.app
 | `TAURI_SIGNING_PRIVATE_KEY` | `.tauri/sema.key` 全文 |
 | `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | 若生成密钥时设了密码则填写，否则可留空或不建 |
 
-推送 `v*` tag 后 CI 会签名更新包并上传 `latest.json`。
+推送 `v*` tag（如 `git tag v1.2.3 && git push origin v1.2.3`），或在 Actions 里手动运行 `release` workflow 后，CI 会构建 macOS/Windows 安装包、签名更新产物并上传 `latest.json`。
 
 ## 使用说明
 
