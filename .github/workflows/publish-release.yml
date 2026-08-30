@@ -1,8 +1,7 @@
-name: release
+name: publish-release
 
 # Only when a GitHub Release is published (tag like v1.0.10).
-# Do NOT use push/tags here: this repo was getting empty failed Actions runs
-# (0 jobs) on every master push despite tags-only filters.
+# Branch pushes must not start this workflow.
 on:
   release:
     types: [published]
