@@ -34,6 +34,8 @@ export type TermHandle = {
 
 type Props = {
   sessionId: string;
+  /** System Terminal needs a visible caret; Ink AI CLIs hide the hardware one. */
+  cliId: string;
   visible: boolean;
   onSubmitChat: () => void;
   /** Non-submit PTY write (typing / paste) — parent may disarm activity pulse. */
@@ -69,6 +71,7 @@ function focusTerm(term: Terminal) {
 
 export default function TerminalHost({
   sessionId,
+  cliId,
   visible,
   onSubmitChat,
   onUserComposing,
@@ -173,19 +176,22 @@ export default function TerminalHost({
     // A bg-colored *block* cursor uses !important fill and erases that inverse
     // cell — caret vanishes while typing still works. Use bar + bg-matched
     // cursor color: no cell fill, and the 1px bar is invisible on the dark bg.
+    // System Terminal has no Ink caret — show a normal blinking block instead.
     const bg = "#0c0c0c";
+    const fg = "#cccccc";
+    const isSystemTerminal = cliId === "terminal";
     const term = new Terminal({
-      cursorBlink: false,
-      cursorStyle: "bar",
+      cursorBlink: isSystemTerminal,
+      cursorStyle: isSystemTerminal ? "block" : "bar",
       cursorWidth: 1,
-      cursorInactiveStyle: "outline",
+      cursorInactiveStyle: isSystemTerminal ? "block" : "outline",
       fontFamily:
         'Menlo, Monaco, Cascadia Mono, Consolas, "Courier New", monospace',
       fontSize: 11,
       theme: {
         background: bg,
-        foreground: "#cccccc",
-        cursor: bg,
+        foreground: fg,
+        cursor: isSystemTerminal ? fg : bg,
         cursorAccent: bg,
         selectionBackground: "#264f78",
         selectionInactiveBackground: "#264f78",

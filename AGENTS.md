@@ -68,7 +68,7 @@ cd src-tauri && cargo test
 - **窗口顶栏**：仅 macOS — `titleBarStyle: Overlay`、`MacTitleBar` 高 38px 与红绿灯同条；Win 保持侧栏 `+` + `#cli-toolbar`。设计见 `docs/superpowers/specs/2026-08-08-macos-titlebar-toolbar-design.md`
 - **Mac 绿钮「全屏」**：关闭 Spaces 全屏（`FullScreenNone`），绿钮切换沉浸缩放（铺满屏 + 藏菜单栏/Dock，红绿灯仍留在顶栏）；再点按保存的 frame 还原。勿再走系统 Spaces（会藏红绿灯到顶部热区）
 - **Git 分支底栏**：每栏底部固定一行；有分支显示分支图标+名；无 git / 失败显示 `~`（无图标）。只读，不可切换分支。命令 `git_branch` 永不因 git 缺失而 reject
-- **xterm 硬件光标**：Ink/TUI（Cursor 等）自绘反色光标；硬件光标常叠在同一格。勿用与背景同色的 `block`（`cursorBlink: false` 时 `!important` 铺底会盖掉反色格，表现为「能输入但无光标」）。用 `cursorStyle: "bar"` + 光标色=背景（无单元格填充，暗底上 1px 条不可见）
+- **xterm 硬件光标**：Ink/TUI（Cursor 等）自绘反色光标；硬件光标常叠在同一格。勿用与背景同色的 `block`（`cursorBlink: false` 时 `!important` 铺底会盖掉反色格，表现为「能输入但无光标」）。AI CLI 用 `cursorStyle: "bar"` + 光标色=背景（无单元格填充，暗底上 1px 条不可见）。**Terminal**（`cliId === "terminal"`）无 Ink 自绘光标，用可见闪烁 `block` + 前景色光标（Win/Mac 相同）
 - **分栏 fit 滚动**：点右上角 CLI 挤窄已有栏时，layout 可能把 `.xterm-viewport` 的 `scrollTop` 短暂置 0，xterm 会当成用户上滚并把 ydisp 拉到历史顶。`fitPane` 前后用 `termScroll` 快照/恢复；`ResizeObserver` 仅当本栏 textarea 已聚焦才 `focus`（避免抢新栏焦点）
 - **Spawn**：Windows 无扩展名 shim 时走 `cmd.exe /c`；Unix 直接 `tool.path` + args
 - **OpenCode 数据目录**：两边都先查 `~/.local/share/opencode`；Mac 另试 Application Support；Windows 另试 `%APPDATA%\opencode`
@@ -101,6 +101,7 @@ cd src-tauri && cargo test
 - `read_text_file` / `write_text_file` → 栏内文档读写
 - `pane_webview_open` / `pane_webview_set_bounds` / `pane_webview_set_visible` / `pane_webview_close` → 栏内链接/HTML 子 WebView
 - `open_external` → 系统浏览器（产物右键 Open、链接加载失败兜底）
+- `open_path` → 系统文件管理器打开目录（栏顶「打开当前目录」；Mac `open` / Win `cmd start`）
 - 推送事件：`session:data`、`session:exit`
 
 ### Prefs（常用字段）
@@ -119,8 +120,8 @@ cd src-tauri && cargo test
 7. **分支底栏**：只读展示；不提供切分支 UI（交给 IDE / CLI）。
 8. **快捷键**：新建 / 侧栏折叠见上表；须窗口前台；勿注册全局热键。
 9. **溢出滚动**：多分栏横向用 `ChromeScrollbar`（Mac 勿只靠 `::-webkit-scrollbar`）；侧栏 tag 纵向可滚但不显示滚动条；Win + Mac 一起验收。
-10. **侧栏 tab**：默认第一栏文件夹名；双击可改并写入 `layout.groups[].customTitle`；清空恢复默认。**拖动排序**（pointer 拖拽，非 HTML5 DnD）：拖到某 tab 上/下边缘（约各 25%）插入并重排，顺序随 `layout.groups` 持久化、下次启动恢复；**拖到标签中部**合并分栏。拖拽时禁用文字选中与 `:hover` 高亮（`#tabs.is-dragging`；仅保留合并目标 `drop-target` 与插入线 `drop-insert-before`）；被拖 tab 文字透明、由 ghost 显示标签名。右键或 Delete 关闭组。栏顶 chrome：`{tool.label} · {cwd}`（点两侧有空格）。逻辑见 `src/lib/reorderGroups.ts`、`src/components/Sidebar.tsx`。
-11. **会话产物条**：**Terminal 无产物图标**。绑定 `cliSessionId` 且非「待续聊」后，栏顶 **`.pane-actions`**（`×` 左侧）显示 **文件夹图标 + 文档数**、**地球图标 + 链接数**（UI **无「产物」**、无 chrome 下折叠条）。点击图标 → **Portal 悬浮下拉**（锚在图标下方、右对齐；`Esc`/点外关闭）。左键条目 → **栏内分屏**（左 xterm | 右内容，可拖分隔条）：`.md`/`.markdown` 默认**预览**、工具栏**单图标**切换编辑/预览；`.html`/`.htm` 与 `http(s)` 链接用 Tauri **子 WebView**；其余白名单文档为文本编辑器；**保存** Mac `⌘S` / Win `Ctrl+S`。右键条目 **Open** → 系统浏览器。按 `cliSessionId` 只读各 CLI 会话存储；**布局恢复 / 待 ↻ 时不展示**，须点 ↻ 或开聊后才有；↻ 续聊展示**全量历史**；新会话仅展示绑定后的新条目。不可栏内打开的 `http(s)` 在收集阶段过滤。**子 WebView 叠在主窗口 HTML 之上**：链接预览已开时，产物下拉打开须 **`pane_webview_set_visible(false)`**，右栏显示 URL/文件名占位，关菜单后恢复页面（Win+Mac 同逻辑）。**× 仅关右栏**；切组 hide WebView；`/clear`/`/new`/`/reset` 清空并关右栏；预览态仅内存。见 `docs/superpowers/specs/2026-08-16-in-pane-artifact-preview-design.md`。
+10. **侧栏 tab**：默认第一栏文件夹名；双击可改并写入 `layout.groups[].customTitle`；清空恢复默认。**拖动排序**（pointer 拖拽，非 HTML5 DnD）：拖到某 tab 上/下边缘（约各 25%）插入并重排，顺序随 `layout.groups` 持久化、下次启动恢复；**拖到标签中部**合并分栏。拖拽时禁用文字选中与 `:hover` 高亮（`#tabs.is-dragging`；仅保留合并目标 `drop-target` 与插入线 `drop-insert-before`）；被拖 tab 文字透明、由 ghost 显示标签名。右键或 Delete 关闭组。栏顶 chrome 导航条：`{tool.label} · {cwd}`（点两侧有空格）；**× 左侧**固定 **打开当前目录**（文件夹图标，`title`「打开当前目录」）→ `open_path(cwd)`（Mac Finder / Win Explorer）。逻辑见 `src/lib/reorderGroups.ts`、`src/components/Sidebar.tsx`。
+11. **会话产物条**：**Terminal 无产物图标**。绑定 `cliSessionId` 且非「待续聊」后，栏顶 **`.pane-actions`**（打开当前目录 / `×` 左侧）显示 **文件图标 + 文档数**、**地球图标 + 链接数**（UI **无「产物」**、无 chrome 下折叠条）。点击图标 → **Portal 悬浮下拉**（锚在图标下方、右对齐；`Esc`/点外关闭）。左键条目 → **栏内分屏**（左 xterm | 右内容，可拖分隔条）：`.md`/`.markdown` 默认**预览**、工具栏**单图标**切换编辑/预览；`.html`/`.htm` 与 `http(s)` 链接用 Tauri **子 WebView**；其余白名单文档为文本编辑器；**保存** Mac `⌘S` / Win `Ctrl+S`。右键条目 **Open** → 系统浏览器。按 `cliSessionId` 只读各 CLI 会话存储；**布局恢复 / 待 ↻ 时不展示**，须点 ↻ 或开聊后才有；↻ 续聊展示**全量历史**；新会话仅展示绑定后的新条目。不可栏内打开的 `http(s)` 在收集阶段过滤。**子 WebView 叠在主窗口 HTML 之上**：链接预览已开时，产物下拉打开须 **`pane_webview_set_visible(false)`**，右栏显示 URL/文件名占位，关菜单后恢复页面（Win+Mac 同逻辑）。**× 仅关右栏**；切组 hide WebView；`/clear`/`/new`/`/reset` 清空并关右栏；预览态仅内存。见 `docs/superpowers/specs/2026-08-16-in-pane-artifact-preview-design.md`。
 12. **Terminal**：CLI 选择器与栏顶 chrome 均显示 **Terminal**（无括号后缀）。后台 Win 启 `COMSPEC`/`cmd.exe`，Mac 启 `$SHELL`（回退 zsh/bash）。不可续聊、不 discover 会话 id、不显示 ↻。
 
 ## 代码习惯

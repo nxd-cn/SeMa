@@ -12,7 +12,7 @@ import { openArtifactInBrowser } from "../lib/openArtifactExternal";
 import { placeArtifactsDropdown } from "../lib/artifactDropdownPlace";
 import type { ArtifactsMenuKind } from "../lib/usePaneArtifacts";
 import ChromeVScrollbar from "./ChromeVScrollbar";
-import { FolderIcon, GlobeIcon } from "./PaneArtifactsIcons";
+import { FileIcon, GlobeIcon } from "./PaneArtifactsIcons";
 
 type ArtifactCtx = {
   x: number;
@@ -350,7 +350,7 @@ export default function PaneArtifacts({
                 onToggleMenu(openMenu === "docs" ? null : "docs");
               }}
             >
-              <FolderIcon />
+              <FileIcon />
               <span className="pane-artifacts-count">{docs.length}</span>
             </button>
           </div>

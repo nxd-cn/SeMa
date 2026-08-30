@@ -650,6 +650,49 @@ pub fn open_external(target: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Open a local directory in the system file manager (Finder / Explorer).
+#[tauri::command]
+pub fn open_path(path: String) -> Result<(), String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err("empty path".into());
+    }
+    let p = std::path::PathBuf::from(trimmed);
+    if !p.is_dir() {
+        return Err("not a directory".into());
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        use std::process::Command;
+        Command::new("open")
+            .arg(&p)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+
+    #[cfg(windows)]
+    {
+        use crate::spawn::CREATE_NO_WINDOW;
+        use std::os::windows::process::CommandExt;
+        use std::process::Command;
+        // `explorer <dir>` opens the folder. Do not CREATE_NO_WINDOW on explorer
+        // itself — hide only the cmd wrapper. `start "" <dir>` also works.
+        let comspec = std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".into());
+        let as_str = p.to_string_lossy();
+        let quoted = quote_cmd_start_target(as_str.as_ref());
+        Command::new(comspec)
+            .args(["/C", "start"])
+            .raw_arg("\"\"")
+            .raw_arg(&quoted)
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{quote_cmd_start_target, resolve_open_external_target};

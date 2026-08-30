@@ -151,6 +151,8 @@ export const tui = {
     }).catch(() => 0),
   openExternal: (target: string) =>
     invoke<void>("open_external", { target }),
+  /** Open a directory in Finder (macOS) / Explorer (Windows). */
+  openPath: (path: string) => invoke<void>("open_path", { path }),
   readTextFile: (args: { path: string; maxBytes?: number }) =>
     invoke<string>("read_text_file", {
       path: args.path,

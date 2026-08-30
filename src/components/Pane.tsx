@@ -6,6 +6,7 @@ import { usePanePreview } from "../lib/usePanePreview";
 import { paneChromeText, toolLabelForCli, useAppStore } from "../store/appStore";
 import type { PaneState } from "../store/types";
 import PaneArtifacts from "./PaneArtifacts";
+import { FolderIcon } from "./PaneArtifactsIcons";
 import PaneDocView, { PaneDocHeaderActions } from "./PaneDocView";
 import PaneLinkHost from "./PaneLinkHost";
 import PaneSplitBody from "./PaneSplitBody";
@@ -177,6 +178,24 @@ export default function Pane({
           />
           <button
             type="button"
+            className="pane-open-cwd"
+            title="打开当前目录"
+            aria-label="打开当前目录"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
+            onClick={(e) => {
+              e.stopPropagation();
+              void tui.openPath(pane.cwd).catch(() => {
+                /* missing dir / invoke failure — no toast */
+              });
+            }}
+          >
+            <FolderIcon />
+          </button>
+          <button
+            type="button"
             className="pane-close"
             title="关闭此栏"
             onMouseDown={(e) => {
@@ -241,6 +260,7 @@ export default function Pane({
           terminal={
             <TerminalHost
               sessionId={pane.id}
+              cliId={pane.cliId}
               visible={visible}
               onSubmitChat={onSubmitChat}
               onUserComposing={onUserComposing}

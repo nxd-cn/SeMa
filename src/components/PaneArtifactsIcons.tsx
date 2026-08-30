@@ -16,6 +16,25 @@ function FolderIcon() {
   );
 }
 
+/** Document / session-file glyph (not a folder). */
+function FileIcon() {
+  return (
+    <svg
+      className="pane-artifacts-icon-svg"
+      viewBox="0 0 16 16"
+      width="12"
+      height="12"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path
+        fill="currentColor"
+        d="M4.5 1.5A1.5 1.5 0 0 0 3 3v10a1.5 1.5 0 0 0 1.5 1.5h7A1.5 1.5 0 0 0 13 13V5.207a1.5 1.5 0 0 0-.44-1.06L9.853 1.44A1.5 1.5 0 0 0 8.793 1H4.5ZM4.5 2.5h4v2.75c0 .69.56 1.25 1.25 1.25H12.5V13a.5.5 0 0 1-.5.5h-7a.5.5 0 0 1-.5-.5V3a.5.5 0 0 1 .5-.5Z"
+      />
+    </svg>
+  );
+}
+
 function GlobeIcon() {
   return (
     <svg
@@ -34,4 +53,4 @@ function GlobeIcon() {
   );
 }
 
-export { FolderIcon, GlobeIcon };
+export { FolderIcon, FileIcon, GlobeIcon };

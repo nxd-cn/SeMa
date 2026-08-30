@@ -95,6 +95,7 @@ pub fn run() {
             commands::session_artifacts,
             commands::session_artifacts_seq,
             commands::open_external,
+            commands::open_path,
             pane_webview::pane_webview_open,
             pane_webview::pane_webview_set_bounds,
             pane_webview::pane_webview_set_visible,
