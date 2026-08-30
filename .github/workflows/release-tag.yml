@@ -1,9 +1,7 @@
-name: publish-release
+name: release-tag
 
-# Only when a v* tag is pushed (e.g. git push origin v1.2.3).
-# Do NOT use `on: release` here: GitHub currently opens empty failed
-# check suites (event=push, 0 jobs) on every master push for release-only
-# workflows in this repo. Tag filter does not run on ordinary branch pushes.
+# Package only when a v* version tag is pushed.
+# Ordinary branch pushes must not start this workflow.
 on:
   push:
     tags:
