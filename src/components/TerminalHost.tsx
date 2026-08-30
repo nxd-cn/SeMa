@@ -36,6 +36,8 @@ type Props = {
   sessionId: string;
   visible: boolean;
   onSubmitChat: () => void;
+  /** Non-submit PTY write (typing / paste) — parent may disarm activity pulse. */
+  onUserComposing?: () => void;
   onActivityData: (data: string) => void;
   /** User submitted /clear|/new|/reset — drop bound CLI session id. */
   onCliSessionCleared?: () => void;
@@ -69,6 +71,7 @@ export default function TerminalHost({
   sessionId,
   visible,
   onSubmitChat,
+  onUserComposing,
   onActivityData,
   onCliSessionCleared,
   onContextMenu,
@@ -82,6 +85,7 @@ export default function TerminalHost({
   const clearBufRef = useRef("");
   const callbacks = useRef({
     onSubmitChat,
+    onUserComposing,
     onActivityData,
     onCliSessionCleared,
     onExit,
@@ -89,6 +93,7 @@ export default function TerminalHost({
   });
   callbacks.current = {
     onSubmitChat,
+    onUserComposing,
     onActivityData,
     onCliSessionCleared,
     onExit,
@@ -238,6 +243,8 @@ export default function TerminalHost({
       }
       if (tui.dataLooksLikeSubmit(data)) {
         callbacks.current.onSubmitChat();
+      } else if (data.length > 0) {
+        callbacks.current.onUserComposing?.();
       }
       void tui.write(sessionId, data);
     };

@@ -24,6 +24,8 @@ type Props = {
   onDetach: () => void;
   onContinue: () => void;
   onSubmitChat: () => void;
+  /** Non-Enter keystrokes / paste — drop post-turn arm so typing echo does not pulse. */
+  onUserComposing?: () => void;
   onCliSessionCleared?: () => void;
   onActivityData: (data: string) => void;
   onRegisterArtifactsIdle?: (
@@ -49,6 +51,7 @@ export default function Pane({
   onDetach,
   onContinue,
   onSubmitChat,
+  onUserComposing,
   onCliSessionCleared,
   onActivityData,
   onRegisterArtifactsIdle,
@@ -240,6 +243,7 @@ export default function Pane({
               sessionId={pane.id}
               visible={visible}
               onSubmitChat={onSubmitChat}
+              onUserComposing={onUserComposing}
               onCliSessionCleared={onCliSessionCleared}
               onActivityData={onActivityData}
               onContextMenu={onContextMenu}

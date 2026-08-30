@@ -427,6 +427,26 @@ export default function App() {
     [persistLayout]
   );
 
+  /**
+   * Typing / paste before Enter must not green-pulse. Post-turn ARM_HOLD leaves
+   * activityArmed so late tokens can re-pulse; TUI echo of keystrokes would
+   * otherwise look like turn output. Only drop that hold — mid-turn busy and
+   * post-Enter await (armed, no hold) stay armed.
+   */
+  const noticeUserComposing = useCallback(
+    (sessionId: string) => {
+      const s = useAppStore.getState();
+      const v = s.panes[sessionId];
+      if (!v || !ACTIVITY_CLIS.has(v.cliId) || !v.activityArmed) return;
+      const group = s.groups.find((g) => g.paneIds.includes(sessionId));
+      if (!group || group.busy) return;
+      if (!armHoldTimers.current.has(group.id)) return;
+      clearGroupArmHold(group.id);
+      s.updatePane(sessionId, { activityArmed: false });
+    },
+    [clearGroupArmHold]
+  );
+
   const noticeUserStartedChat = useCallback(
     (sessionId: string) => {
       const s = useAppStore.getState();
@@ -949,6 +969,8 @@ export default function App() {
         if (text) {
           if (tui.dataLooksLikeSubmit(text)) {
             noticeUserStartedChat(menu.paneId);
+          } else {
+            noticeUserComposing(menu.paneId);
           }
           void tui.write(menu.paneId, text);
         }
@@ -960,7 +982,7 @@ export default function App() {
         handle.selectAll();
       }
     },
-    [ctxMenu, noticeUserStartedChat]
+    [ctxMenu, noticeUserComposing, noticeUserStartedChat]
   );
 
   // Boot: prefs + CLI list + restore layout
@@ -1272,6 +1294,7 @@ export default function App() {
                         onDetach={() => detachSession(pane.id)}
                         onContinue={() => void onContinue(pane.id)}
                         onSubmitChat={() => noticeUserStartedChat(pane.id)}
+                        onUserComposing={() => noticeUserComposing(pane.id)}
                         onCliSessionCleared={() => onCliSessionCleared(pane.id)}
                         onActivityData={(data) => noteActivity(pane.id, data)}
                         onRegisterArtifactsIdle={registerArtifactsIdle}
