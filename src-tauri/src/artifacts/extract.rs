@@ -100,8 +100,27 @@ fn file_mtime_ms(path: &str) -> Option<u64> {
 }
 
 
+/// Chars that end a bare URL in transcript text (not valid mid-URL wrappers).
+fn is_url_boundary(c: char) -> bool {
+    c.is_whitespace()
+        || matches!(
+            c,
+            ')' | ']' | '>' | ',' | '`' | '\'' | '"' | '）' | '】' | '》'
+        )
+}
+
+/// Transcript / markdown wrappers glued to the end of a token (`` `url` ``, `(url).`).
+/// Includes `.` / `:` which may appear mid-URL, so only strip after the token is cut.
+fn is_trailing_punct(c: char) -> bool {
+    matches!(
+        c,
+        '.' | ',' | ')' | ']' | '>' | ';' | ':' | '`' | '\'' | '"' | '*'
+            | '）' | '】' | '》' | '。' | '，' | '；' | '：'
+    )
+}
+
 fn trim_trailing_punct(token: &str) -> &str {
-    token.trim_end_matches(|c: char| matches!(c, '.' | ',' | ')' | ']' | '>' | ';' | ':'))
+    token.trim_end_matches(is_trailing_punct)
 }
 
 fn is_http_url(s: &str) -> bool {
@@ -129,16 +148,13 @@ fn extract_urls(text: &str) -> Vec<String> {
             let Some(ch) = text[pos..].chars().next() else {
                 break;
             };
-            if ch.is_whitespace() || matches!(ch, ')' | ']' | '>' | ',') {
+            if is_url_boundary(ch) {
                 break;
             }
             pos += ch.len_utf8();
         }
 
-        let mut url = text[start..pos].to_string();
-        while url.ends_with('.') || url.ends_with(',') || url.ends_with(')') || url.ends_with(']') {
-            url.pop();
-        }
+        let url = trim_trailing_punct(&text[start..pos]).to_string();
         if !url.is_empty() {
             urls.push(url);
         }
@@ -336,6 +352,29 @@ mod tests {
         let r = collect_from_texts(&texts, "/tmp/proj");
         assert_eq!(r.links.len(), 1);
         assert_eq!(r.links[0].url, "https://example.com/a");
+    }
+
+    #[test]
+    fn strips_trailing_backtick_and_markdown_wrappers() {
+        let texts = vec![(
+            1,
+            "site https://nxd-cn.github.io/SeMa/` and `https://example.com/x` \"https://example.com/y\"".into(),
+        )];
+        let r = collect_from_texts(&texts, "/tmp/proj");
+        let urls: Vec<_> = r.links.iter().map(|l| l.url.as_str()).collect();
+        assert!(urls.contains(&"https://nxd-cn.github.io/SeMa/"));
+        assert!(urls.contains(&"https://example.com/x"));
+        assert!(urls.contains(&"https://example.com/y"));
+        assert!(!urls.iter().any(|u| u.contains('`')));
+        assert!(!urls.iter().any(|u| u.ends_with('"')));
+    }
+
+    #[test]
+    fn keeps_url_port_and_path_dot() {
+        let texts = vec![(1, "go https://example.com:8080/a.b/c".into())];
+        let r = collect_from_texts(&texts, "/tmp/proj");
+        assert_eq!(r.links.len(), 1);
+        assert_eq!(r.links[0].url, "https://example.com:8080/a.b/c");
     }
 
     #[test]

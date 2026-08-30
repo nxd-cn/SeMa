@@ -3,6 +3,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { tui } from "../api/tui";
 import { attachImeHeuristic } from "../lib/imeAnchor";
+import { attachInkHardwareCursorLock } from "../lib/lockInkHardwareCursor";
 import {
   canFitInHost,
   clampRowsToClientHeight,
@@ -206,6 +207,10 @@ export default function TerminalHost({
     // Ink AI CLIs park hardware cursor at row end; pin IME to inverse caret
     // (otherwise Windows candidate window sits at the far right).
     const ime = attachImeHeuristic(term);
+    // CLIs may DECSCUSR → block and erase the Ink caret; keep bar locked.
+    const inkCursorLock = isSystemTerminal
+      ? null
+      : attachInkHardwareCursorLock(term);
     // Mac only: CapsLock 中/英 during composition double-sends on WKWebView.
     const capsLockIme = tui.isMac ? attachCapsLockImeFix(term) : null;
 
@@ -382,6 +387,11 @@ export default function TerminalHost({
       if (fitRoRaf) cancelAnimationFrame(fitRoRaf);
       try {
         capsLockIme?.detach();
+      } catch {
+        /* ignore */
+      }
+      try {
+        inkCursorLock?.detach();
       } catch {
         /* ignore */
       }
