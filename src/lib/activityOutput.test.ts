@@ -18,8 +18,16 @@ describe("looksLikeTurnOutput", () => {
   });
 
   it("accepts newline-bearing chunks", () => {
-    expect(looksLikeTurnOutput("\r")).toBe(true);
     expect(looksLikeTurnOutput("ab\n")).toBe(true);
+  });
+
+  it("rejects bare CR (TUI cursor reset / redraw)", () => {
+    expect(looksLikeTurnOutput("\r")).toBe(false);
+    expect(looksLikeTurnOutput("\r\r")).toBe(false);
+  });
+
+  it("accepts CR when other printable text remains", () => {
+    expect(looksLikeTurnOutput("ab\r")).toBe(true);
   });
 });
 

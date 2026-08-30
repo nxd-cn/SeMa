@@ -15,8 +15,11 @@ export function stripTerminalControls(data: string): string {
  */
 export function looksLikeTurnOutput(data: string): boolean {
   const text = stripTerminalControls(data);
-  if (text.indexOf("\r") !== -1 || text.indexOf("\n") !== -1) return true;
-  return text.trim().length >= 1;
+  // Newlines are real turn/stream boundaries. Bare CR is common in TUI
+  // cursor resets / full-frame redraws and must not start a green pulse.
+  if (text.indexOf("\n") !== -1) return true;
+  const withoutCr = text.replace(/\r/g, "");
+  return withoutCr.trim().length >= 1;
 }
 
 /**

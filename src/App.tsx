@@ -248,6 +248,26 @@ export default function App() {
     }
   }, []);
 
+  /**
+   * Post-turn ARM_HOLD keeps activityArmed so a thinking gap can re-pulse.
+   * Leaving / opening an idle tab must drop that hold — park/unpark layout and
+   * TUI chrome redraws otherwise re-trigger the green pulse on a finished turn.
+   * Still-busy groups and submit-awaiting-first-token (armed, no hold) are kept.
+   */
+  const disarmPostTurnIdle = useCallback(
+    (groupId: string) => {
+      const s = useAppStore.getState();
+      const g = s.groups.find((x) => x.id === groupId);
+      if (!g || g.busy) return;
+      if (!armHoldTimers.current.has(groupId)) return;
+      clearGroupArmHold(groupId);
+      for (const pid of g.paneIds) {
+        s.updatePane(pid, { activityArmed: false });
+      }
+    },
+    [clearGroupArmHold]
+  );
+
   const clearGroupActivity = useCallback(
     (groupId: string) => {
       clearGroupIdleTimer(groupId);
@@ -480,13 +500,19 @@ export default function App() {
       const s = useAppStore.getState();
       const g = s.groups.find((x) => x.id === groupId);
       if (!g || !g.paneIds.length) return;
+      const prevId = s.activeGroupId;
+      if (prevId && prevId !== groupId) {
+        disarmPostTurnIdle(prevId);
+      }
+      // Unparking also refits and can redraw a finished TUI — settle target too.
+      disarmPostTurnIdle(groupId);
       const focus =
         g.focusId && g.paneIds.includes(g.focusId)
           ? g.focusId
           : g.paneIds[0];
       setActivePane(focus);
     },
-    [setActivePane]
+    [disarmPostTurnIdle, setActivePane]
   );
 
   const renameGroup = useCallback(
