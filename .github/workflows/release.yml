@@ -1,7 +1,5 @@
-name: release-tag
+name: release
 
-# Package only when a v* version tag is pushed.
-# Ordinary branch pushes must not start this workflow.
 on:
   push:
     tags:
@@ -45,7 +43,7 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      # Tag v1.2.3 → package / Cargo / bundle filenames use 1.2.3.
+      # Tag v1.2.3 → package / Cargo / bundle filenames use 1.2.3 (not the hardcoded 0.1.0).
       - name: Set app version from tag
         shell: bash
         run: |
