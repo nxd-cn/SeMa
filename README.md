@@ -50,7 +50,7 @@ npm run tauri:build
 把 `SeMa.app` 拖进「应用程序」后，在终端执行：
 
 ```bash
-xattr -cr /Applications/SeMa.app  
+xattr -cr /Applications/SeMa.app    
 ```
 
 然后再打开 SeMa。正式对外分发需 Apple Developer 账号做签名 + 公证。
