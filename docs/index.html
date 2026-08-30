@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SeMa — 多 AI CLI 会话管理</title>
+  <meta name="description" content="跨平台桌面应用：在一个窗口里管理多个 AI CLI 会话。支持 Claude Code、Cursor Agent、Codex、Gemini 等。" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --ink: #14201c;
+      --muted: #4a5c55;
+      --line: rgba(20, 32, 28, 0.12);
+      --surface: rgba(255, 255, 255, 0.55);
+      --accent: #0f7a5f;
+      --accent-soft: #d8efe7;
+      --bg0: #e8f2ee;
+      --bg1: #f6f3eb;
+      --bg2: #dce8f5;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: "Instrument Sans", system-ui, sans-serif;
+      color: var(--ink);
+      line-height: 1.55;
+      min-height: 100vh;
+      background:
+        radial-gradient(1100px 700px at 12% -10%, rgba(15, 122, 95, 0.18), transparent 55%),
+        radial-gradient(900px 600px at 95% 8%, rgba(70, 110, 160, 0.16), transparent 50%),
+        linear-gradient(165deg, var(--bg0), var(--bg1) 45%, var(--bg2));
+      background-attachment: fixed;
+    }
+
+    a { color: inherit; }
+
+    .wrap {
+      width: min(920px, calc(100% - 2.5rem));
+      margin: 0 auto;
+    }
+
+    .hero {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 4rem 0 3rem;
+      animation: rise 0.7s ease-out both;
+    }
+
+    .brand {
+      font-family: "JetBrains Mono", monospace;
+      font-size: clamp(2.8rem, 8vw, 5rem);
+      font-weight: 500;
+      letter-spacing: -0.04em;
+      line-height: 1;
+      margin-bottom: 1.25rem;
+    }
+
+    .brand span { color: var(--accent); }
+
+    h1 {
+      font-size: clamp(1.35rem, 3.2vw, 1.85rem);
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      max-width: 18ch;
+      margin-bottom: 0.85rem;
+    }
+
+    .lede {
+      color: var(--muted);
+      font-size: 1.05rem;
+      max-width: 36rem;
+      margin-bottom: 1.75rem;
+    }
+
+    .cta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      text-decoration: none;
+      border-radius: 0.55rem;
+      padding: 0.7rem 1.1rem;
+      font-weight: 600;
+      font-size: 0.95rem;
+      transition: transform 0.2s ease, background 0.2s ease, color 0.2s ease;
+    }
+
+    .btn:hover { transform: translateY(-1px); }
+
+    .btn-primary {
+      background: var(--ink);
+      color: #f4faf7;
+    }
+
+    .btn-primary:hover { background: #0c1613; }
+
+    .btn-ghost {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      backdrop-filter: blur(8px);
+    }
+
+    .btn-ghost:hover { background: #fff; }
+
+    section {
+      padding: 3.5rem 0;
+      border-top: 1px solid var(--line);
+      animation: rise 0.8s ease-out both;
+      animation-delay: 0.12s;
+    }
+
+    section h2 {
+      font-size: 1.15rem;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      margin-bottom: 0.45rem;
+    }
+
+    section > p {
+      color: var(--muted);
+      margin-bottom: 1.5rem;
+      max-width: 40rem;
+    }
+
+    .clis {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 0.82rem;
+    }
+
+    .clis span {
+      background: var(--accent-soft);
+      color: #0a4f3e;
+      padding: 0.4rem 0.65rem;
+      border-radius: 0.4rem;
+    }
+
+    .features {
+      display: grid;
+      gap: 1.25rem 2rem;
+    }
+
+    @media (min-width: 700px) {
+      .features { grid-template-columns: 1fr 1fr; }
+    }
+
+    .features dt {
+      font-weight: 600;
+      margin-bottom: 0.2rem;
+    }
+
+    .features dd {
+      color: var(--muted);
+      font-size: 0.98rem;
+    }
+
+    .stack {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 0.88rem;
+      color: var(--muted);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.55rem 1.1rem;
+    }
+
+    .downloads {
+      display: flex;
+      flex-direction: column;
+      gap: 0.65rem;
+    }
+
+    .downloads a {
+      text-decoration: none;
+      color: var(--accent);
+      font-weight: 500;
+    }
+
+    .downloads a:hover { text-decoration: underline; }
+
+    .note {
+      margin-top: 1rem;
+      font-size: 0.9rem;
+      color: var(--muted);
+    }
+
+    code {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 0.85em;
+    }
+
+    footer {
+      padding: 2rem 0 3rem;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 0.9rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem 1.5rem;
+      justify-content: space-between;
+    }
+
+    footer a {
+      color: var(--ink);
+      text-decoration: none;
+      font-weight: 500;
+    }
+
+    footer a:hover { color: var(--accent); }
+
+    @keyframes rise {
+      from { opacity: 0; transform: translateY(14px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation: none !important;
+        transition: none !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <header class="hero">
+      <p class="brand">Se<span>Ma</span></p>
+      <h1>一个窗口，管理多个 AI CLI 会话</h1>
+      <p class="lede">
+        跨平台桌面应用（Windows / macOS）。按项目目录打开 Claude Code、Cursor Agent、Codex、Gemini 等，支持分栏、续聊与未读提示。
+      </p>
+      <div class="cta">
+        <a class="btn btn-primary" href="https://github.com/nxd-cn/SeMa">查看源码</a>
+        <a class="btn btn-ghost" href="https://github.com/nxd-cn/SeMa/releases/latest">下载最新版</a>
+      </div>
+    </header>
+
+    <section>
+      <h2>支持的 CLI</h2>
+      <p>已安装并配置 PATH 的工具会出现在列表中；Terminal 始终可用。</p>
+      <div class="clis" aria-label="支持的 CLI 列表">
+        <span>Claude Code</span>
+        <span>Cursor Agent</span>
+        <span>OpenCode</span>
+        <span>Codex</span>
+        <span>Gemini</span>
+        <span>Pi</span>
+        <span>Kimi Code</span>
+        <span>Terminal</span>
+      </div>
+    </section>
+
+    <section>
+      <h2>能做什么</h2>
+      <p>为多项目、多助手并行工作流设计。</p>
+      <dl class="features">
+        <div>
+          <dt>按目录开会话</dt>
+          <dd>选择项目路径与 CLI，每个会话绑定工作目录。</dd>
+        </div>
+        <div>
+          <dt>分栏与合并</dt>
+          <dd>同组多分栏并排工作；拖拽 tab 可排序或合并。</dd>
+        </div>
+        <div>
+          <dt>续聊与未读</dt>
+          <dd>有历史时可续聊；非当前组有回复时侧栏蓝点 + Toast。</dd>
+        </div>
+        <div>
+          <dt>Git 分支底栏</dt>
+          <dd>只读显示当前分支；未安装 git 时显示 ~。</dd>
+        </div>
+      </dl>
+    </section>
+
+    <section>
+      <h2>技术栈</h2>
+      <p>桌面壳 + 终端渲染 + 本地 PTY。</p>
+      <div class="stack">
+        <span>Tauri 2</span>
+        <span>Rust</span>
+        <span>React / TypeScript</span>
+        <span>xterm.js</span>
+        <span>portable-pty</span>
+      </div>
+    </section>
+
+    <section>
+      <h2>下载 v1.1.2</h2>
+      <p>从 GitHub Release 获取安装包；安装后启动时会检查更新。</p>
+      <div class="downloads">
+        <a href="https://github.com/nxd-cn/SeMa/releases/download/v1.1.2/SeMa_1.1.2_macOS_aarch64.dmg">macOS Apple Silicon (.dmg)</a>
+        <a href="https://github.com/nxd-cn/SeMa/releases/download/v1.1.2/SeMa_1.1.2_macOS_x64.dmg">macOS Intel (.dmg)</a>
+        <a href="https://github.com/nxd-cn/SeMa/releases/download/v1.1.2/SeMa_1.1.2_Windows_x64-setup.exe">Windows x64 (.exe)</a>
+      </div>
+      <p class="note">
+        macOS 包未签名时，若提示「已损坏」，把 App 放入「应用程序」后执行：
+        <code>xattr -cr /Applications/SeMa.app</code>
+      </p>
+    </section>
+
+    <footer>
+      <span>SeMa · 多 AI CLI 会话管理</span>
+      <span>
+        <a href="https://github.com/nxd-cn/SeMa">GitHub</a>
+        ·
+        <a href="https://github.com/nxd-cn/SeMa/blob/master/README.md">完整文档</a>
+      </span>
+    </footer>
+  </main>
+</body>
+</html>
