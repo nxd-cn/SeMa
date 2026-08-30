@@ -768,25 +768,70 @@ body {
   font-size: 11px;
 }
 .pane-artifacts-item {
-  display: block;
-  padding: 5px 12px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px 2px 4px;
   color: #9cdcfe;
-  text-decoration: none;
+  font-size: 11px;
+}
+.pane-artifacts-item-main {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 5px 8px;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   cursor: pointer;
-  font-size: 11px;
 }
-.pane-artifacts-item:hover {
+.pane-artifacts-item-main:hover:not(:disabled),
+.pane-artifacts-item:hover .pane-artifacts-item-main:not(:disabled) {
   background: #094771;
   color: #fff;
 }
-.pane-artifacts-item.is-missing {
-  color: #666;
+.pane-artifacts-item-main:disabled {
   cursor: default;
 }
-.pane-artifacts-item.is-missing:hover {
+.pane-artifacts-item-open {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  width: 22px;
+  height: 22px;
+  border: 1px solid #444;
+  border-radius: 3px;
+  background: #333;
+  color: #ccc;
+  cursor: pointer;
+}
+.pane-artifacts-item-open .pane-artifacts-icon-svg {
+  width: 12px;
+  height: 12px;
+}
+.pane-artifacts-item-open:hover:not(:disabled) {
+  background: #094771;
+  border-color: #0e639c;
+  color: #fff;
+}
+.pane-artifacts-item-open:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.pane-artifacts-item.is-missing {
+  color: #666;
+}
+.pane-artifacts-item.is-missing .pane-artifacts-item-main:hover,
+.pane-artifacts-item.is-missing:hover .pane-artifacts-item-main {
   background: transparent;
   color: #666;
 }

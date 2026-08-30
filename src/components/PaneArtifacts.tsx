@@ -8,11 +8,14 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import type { DocArtifact, LinkArtifact } from "../api/tui";
-import { openArtifactInBrowser } from "../lib/openArtifactExternal";
+import {
+  openArtifactInBrowser,
+  openArtifactInSystem,
+} from "../lib/openArtifactExternal";
 import { placeArtifactsDropdown } from "../lib/artifactDropdownPlace";
 import type { ArtifactsMenuKind } from "../lib/usePaneArtifacts";
 import ChromeVScrollbar from "./ChromeVScrollbar";
-import { FileIcon, GlobeIcon } from "./PaneArtifactsIcons";
+import { FileIcon, FolderIcon, GlobeIcon } from "./PaneArtifactsIcons";
 
 type ArtifactCtx = {
   x: number;
@@ -103,6 +106,7 @@ type DropdownProps = {
   missingPaths: Set<string>;
   onOpenDoc: (path: string) => void;
   onOpenLink: (url: string) => void;
+  onOpenInSystem: (kind: "doc" | "link", target: string) => void;
   onContextMenu: (
     e: React.MouseEvent,
     kind: "doc" | "link",
@@ -123,6 +127,7 @@ const ArtifactsDropdown = forwardRef<HTMLDivElement, DropdownProps>(
       missingPaths,
       onOpenDoc,
       onOpenLink,
+      onOpenInSystem,
       onContextMenu,
       onPick,
       onDocError,
@@ -155,22 +160,38 @@ const ArtifactsDropdown = forwardRef<HTMLDivElement, DropdownProps>(
                 docs.map((doc) => {
                   const missing = missingPaths.has(doc.path);
                   return (
-                    <a
+                    <div
                       key={doc.path}
                       role="menuitem"
                       className={`pane-artifacts-item${missing ? " is-missing" : ""}`}
-                      href={missing ? undefined : "#"}
                       title={doc.path}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        openDoc(doc.path);
-                      }}
                       onContextMenu={(e) =>
                         onContextMenu(e, "doc", doc.path, missing)
                       }
                     >
-                      {doc.label}
-                    </a>
+                      <button
+                        type="button"
+                        className="pane-artifacts-item-main"
+                        disabled={missing}
+                        onClick={() => openDoc(doc.path)}
+                      >
+                        {doc.label}
+                      </button>
+                      <button
+                        type="button"
+                        className="pane-artifacts-item-open"
+                        title="打开所在文件夹"
+                        aria-label="打开所在文件夹"
+                        disabled={missing}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (missing) return;
+                          onOpenInSystem("doc", doc.path);
+                        }}
+                      >
+                        <FolderIcon />
+                      </button>
+                    </div>
                   );
                 })
               ) : loading ? (
@@ -180,21 +201,36 @@ const ArtifactsDropdown = forwardRef<HTMLDivElement, DropdownProps>(
               )
             ) : links.length > 0 ? (
               links.map((link) => (
-                <a
+                <div
                   key={link.url}
                   role="menuitem"
                   className="pane-artifacts-item"
-                  href={link.url}
                   title={link.url}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    onPick();
-                    onOpenLink(link.url);
-                  }}
                   onContextMenu={(e) => onContextMenu(e, "link", link.url)}
                 >
-                  {link.label || link.url}
-                </a>
+                  <button
+                    type="button"
+                    className="pane-artifacts-item-main"
+                    onClick={() => {
+                      onPick();
+                      onOpenLink(link.url);
+                    }}
+                  >
+                    {link.label || link.url}
+                  </button>
+                  <button
+                    type="button"
+                    className="pane-artifacts-item-open"
+                    title="在浏览器打开"
+                    aria-label="在浏览器打开"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onOpenInSystem("link", link.url);
+                    }}
+                  >
+                    <GlobeIcon />
+                  </button>
+                </div>
               ))
             ) : loading ? (
               <div className="pane-artifacts-empty">加载中…</div>
@@ -303,6 +339,15 @@ export default function PaneArtifacts({
     });
   };
 
+  const openInSystem = useCallback(
+    (kind: "doc" | "link", target: string) => {
+      void openArtifactInSystem(kind, target).catch(() => {
+        if (kind === "doc") markMissing(target);
+      });
+    },
+    [markMissing],
+  );
+
   if (!cliSessionId) return null;
 
   const showDocs = docs.length > 0 || openMenu === "docs";
@@ -322,6 +367,7 @@ export default function PaneArtifacts({
         missingPaths={missingPaths}
         onOpenDoc={onOpenDoc}
         onOpenLink={onOpenLink}
+        onOpenInSystem={openInSystem}
         onContextMenu={showCtx}
         onPick={closeMenu}
         onDocError={markMissing}
