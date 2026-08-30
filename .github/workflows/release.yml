@@ -195,7 +195,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: macos-${{ matrix.arch }}
-          path: releases/**
+          path: releases/${{ needs.version.outputs.version }}
           if-no-files-found: error
 
   windows:
@@ -287,7 +287,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: windows-x64
-          path: releases/**
+          path: releases/${{ needs.version.outputs.version }}
           if-no-files-found: error
 
   publish:
@@ -305,7 +305,24 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           merge-multiple: true
-          path: ${{ github.workspace }}
+          path: artifacts
+
+      - name: Collect release assets
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          OUT="releases/${VERSION}"
+          mkdir -p "$OUT"
+          echo "==> Downloaded artifact tree:"
+          find artifacts -type f | sort
+          # upload-artifact of a directory stores files at artifact root (or under VERSION/).
+          # Flatten whatever we got into releases/${VERSION}/.
+          find artifacts -type f -print0 | while IFS= read -r -d '' f; do
+            cp -f "$f" "$OUT/$(basename "$f")"
+          done
+          echo "==> Collected into ${OUT}:"
+          ls -lh "$OUT"
 
       - name: Build latest.json
         env:

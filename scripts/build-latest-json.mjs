@@ -39,7 +39,10 @@ function assetUrl(fileName) {
 function requireFile(fileName) {
   const full = path.join(dir, fileName);
   if (!fs.existsSync(full)) {
-    throw new Error(`missing asset: ${full}`);
+    const listing = fs.existsSync(dir)
+      ? fs.readdirSync(dir).join("\n  ")
+      : `(missing directory ${dir})`;
+    throw new Error(`missing asset: ${full}\nfiles in dir:\n  ${listing}`);
   }
   return full;
 }
