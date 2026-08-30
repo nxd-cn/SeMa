@@ -63,7 +63,7 @@ Release CI needs these repository Secrets (private key is `.tauri/sema.key` loca
 | `TAURI_SIGNING_PRIVATE_KEY` | Full contents of `.tauri/sema.key` |
 | `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Password if the key has one; otherwise omit or leave empty |
 
-Publish a GitHub Release with a `v*` tag to have CI sign updater artifacts and upload `latest.json`. Ordinary branch pushes do not trigger the release workflow.
+Push a `v*` tag (e.g. `git tag v1.2.3 && git push origin v1.2.3`) so CI signs updater artifacts and uploads `latest.json`. Ordinary branch pushes do not start a release build.
 
 ## Usage
 
