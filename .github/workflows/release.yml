@@ -342,23 +342,21 @@ jobs:
             fi
           done
 
-          notes=$(cat <<EOF
-有可用更新，可直接安装并重启，无需卸载。
-
-- Windows: \`SeMa_${VERSION}_Windows_x64-setup.exe\` (NSIS)
-- macOS: \`SeMa_${VERSION}_macOS_aarch64.dmg\`（Apple Silicon）、\`SeMa_${VERSION}_macOS_x64.dmg\`（Intel）
-
-### macOS：提示「文件已损坏 / 无法打开」时
-
-安装到「应用程序」后在终端执行：
-
-\`\`\`bash
-xattr -cr /Applications/SeMa.app
-\`\`\`
-
-然后再打开 SeMa。
-EOF
-)
+          notes="$(printf '%s\n' \
+            '有可用更新，可直接安装并重启，无需卸载。' \
+            '' \
+            "- Windows: \`SeMa_${VERSION}_Windows_x64-setup.exe\` (NSIS)" \
+            "- macOS: \`SeMa_${VERSION}_macOS_aarch64.dmg\`（Apple Silicon）、\`SeMa_${VERSION}_macOS_x64.dmg\`（Intel）" \
+            '' \
+            '### macOS：提示「文件已损坏 / 无法打开」时' \
+            '' \
+            '安装到「应用程序」后在终端执行：' \
+            '' \
+            '```bash' \
+            'xattr -cr /Applications/SeMa.app' \
+            '```' \
+            '' \
+            '然后再打开 SeMa。')"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "${files[@]}" --clobber
