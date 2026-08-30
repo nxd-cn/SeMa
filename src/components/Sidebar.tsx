@@ -6,7 +6,9 @@ import {
   resolveTabDropFromTarget,
   type TabDropAction,
 } from "../lib/reorderGroups";
+import type { UpdateUiState } from "../lib/useAppUpdater";
 import { groupLabel, useAppStore } from "../store/appStore";
+import SidebarUpdateFooter from "./SidebarUpdateFooter";
 
 type Props = {
   onNewSession: () => void;
@@ -17,6 +19,7 @@ type Props = {
   onRenameGroup?: (groupId: string, customTitle: string | null) => void;
   /** macOS: + lives in overlay title bar. */
   hideNewButton?: boolean;
+  updater: UpdateUiState;
 };
 
 type DragState = {
@@ -43,6 +46,7 @@ export default function Sidebar({
   onReorderGroups,
   onRenameGroup,
   hideNewButton = false,
+  updater,
 }: Props) {
   const groups = useAppStore((s) => s.groups);
   const panes = useAppStore((s) => s.panes);
@@ -320,6 +324,7 @@ export default function Sidebar({
           ) : null}
         </ul>
       </div>
+      <SidebarUpdateFooter updater={updater} />
       {ghost ? (
         <div
           className="tab-drag-ghost"

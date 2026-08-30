@@ -1,12 +1,15 @@
 name: release
 
+# Only when a GitHub Release is published (tag like v1.0.10).
+# Do NOT use push/tags here: this repo was getting empty failed Actions runs
+# (0 jobs) on every master push despite tags-only filters.
 on:
-  push:
-    tags:
-      - "v*"
+  release:
+    types: [published]
 
 jobs:
   publish-tauri:
+    if: startsWith(github.event.release.tag_name, 'v')
     permissions:
       contents: write
     strategy:
@@ -43,13 +46,15 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      # Tag v1.2.3 → package / Cargo / bundle filenames use 1.2.3 (not the hardcoded 0.1.0).
+      # Release tag v1.2.3 → package / Cargo / bundle filenames use 1.2.3.
       - name: Set app version from tag
         shell: bash
+        env:
+          TAG_NAME: ${{ github.event.release.tag_name }}
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${TAG_NAME#v}"
           if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
-            echo "Tag must look like v1.2.3 (got: ${GITHUB_REF_NAME})"
+            echo "Tag must look like v1.2.3 (got: ${TAG_NAME})"
             exit 1
           fi
           echo "Release version: $VERSION"
@@ -70,11 +75,12 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ github.event.release.tag_name }}
         run: |
           set -euo pipefail
           NOTES=""
 
-          if EXISTING=$(gh release view "${GITHUB_REF_NAME}" --json body -q .body 2>/dev/null); then
+          if EXISTING=$(gh release view "${TAG_NAME}" --json body -q .body 2>/dev/null); then
             if [[ -n "$(printf '%s' "$EXISTING" | tr -d '[:space:]')" ]]; then
               NOTES="$EXISTING"
               echo "Using existing Release notes"
@@ -83,7 +89,7 @@ jobs:
 
           if [[ -z "$(printf '%s' "$NOTES" | tr -d '[:space:]')" ]]; then
             NOTES=$(gh api "repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
-              -f tag_name="${GITHUB_REF_NAME}" \
+              -f tag_name="${TAG_NAME}" \
               -f target_commitish="${GITHUB_SHA}" \
               --jq .body 2>/dev/null || true)
             if [[ -n "$(printf '%s' "$NOTES" | tr -d '[:space:]')" ]]; then
@@ -127,8 +133,8 @@ EOF
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: SeMa ${{ github.ref_name }}
+          tagName: ${{ github.event.release.tag_name }}
+          releaseName: SeMa ${{ github.event.release.tag_name }}
           releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: false
           prerelease: false

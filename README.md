@@ -57,7 +57,7 @@ xattr -cr /Applications/SeMa.app
 
 ### 自动更新
 
-安装后的 SeMa 会在启动时检查 GitHub Release 是否有新版本；有则弹窗，点「立即更新」会下载安装并重启（无需先卸载）。
+安装后的 SeMa 会在启动时检查 GitHub Release 是否有新版本；有则在侧栏底部显示下载图标，点按后下载安装并重启（无需先卸载）。检查失败时同处显示刷新图标可重试。
 
 发布流水线需要仓库 Secrets（本地私钥在 `.tauri/sema.key`，勿提交）：
 
@@ -66,7 +66,7 @@ xattr -cr /Applications/SeMa.app
 | `TAURI_SIGNING_PRIVATE_KEY` | `.tauri/sema.key` 全文 |
 | `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | 若生成密钥时设了密码则填写，否则可留空或不建 |
 
-推送 `v*` tag 后 CI 会签名更新包并上传 `latest.json`。
+在 GitHub 上发布带 `v*` tag 的 Release（Publish）后，CI 会签名更新包并上传 `latest.json`。普通分支推送不会触发发版。
 
 ## 使用说明
 

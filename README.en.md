@@ -54,7 +54,7 @@ Then open SeMa. Proper public distribution needs an Apple Developer ID signature
 
 ### Auto-update
 
-Installed SeMa checks GitHub Releases on launch. If a newer version exists, a dialog offers one-click download, install, and relaunch (no uninstall).
+Installed SeMa checks GitHub Releases on launch. If a newer version exists, a download icon appears at the bottom of the sidebar; click to download, install, and relaunch (no uninstall). If the check fails, a refresh icon there lets you retry.
 
 Release CI needs these repository Secrets (private key is `.tauri/sema.key` locally — never commit it):
 
@@ -63,7 +63,7 @@ Release CI needs these repository Secrets (private key is `.tauri/sema.key` loca
 | `TAURI_SIGNING_PRIVATE_KEY` | Full contents of `.tauri/sema.key` |
 | `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Password if the key has one; otherwise omit or leave empty |
 
-Push a `v*` tag so CI signs updater artifacts and uploads `latest.json`.
+Publish a GitHub Release with a `v*` tag to have CI sign updater artifacts and upload `latest.json`. Ordinary branch pushes do not trigger a release build.
 
 ## Usage
 
