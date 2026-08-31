@@ -34,7 +34,7 @@
 npm install
 npm run tauri:dev      # 开发（Vite + Rust）
 npm run tauri:build    # 打包安装包（macOS dmg/app；Windows nsis）
-npm test               # Vitest（前端纯逻辑）
+npm run check:pack     # 发版前预检：tsc + vite build + cargo test（不打安装包、不需签名）
 cd src-tauri && cargo test
 ```
 
