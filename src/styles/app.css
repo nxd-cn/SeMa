@@ -253,9 +253,9 @@ body {
   align-items: center;
   justify-content: center;
   box-sizing: border-box;
-  width: 24px;
-  height: 24px;
-  padding: 0;
+  min-width: 24px;
+  height: 22px;
+  padding: 0 6px;
   cursor: pointer;
   color: #ccc;
   background: #333;
@@ -263,6 +263,10 @@ body {
   border-radius: 3px;
   overflow: visible;
   flex-shrink: 0;
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+  user-select: none;
 }
 .sidebar-update-btn:hover:not(:disabled) {
   color: #fff;
@@ -273,13 +277,8 @@ body {
   opacity: 0.55;
   cursor: default;
 }
-.sidebar-update-btn.is-checking .sidebar-update-icon-svg {
-  animation: sidebar-update-spin 0.9s linear infinite;
-}
-.sidebar-update-icon-svg {
-  display: block;
-  flex-shrink: 0;
-  overflow: visible;
+.sidebar-update-btn.is-checking {
+  opacity: 0.7;
 }
 .sidebar-update-progress {
   display: inline-flex;
@@ -312,11 +311,6 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-@keyframes sidebar-update-spin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 #tabs {
   list-style: none;

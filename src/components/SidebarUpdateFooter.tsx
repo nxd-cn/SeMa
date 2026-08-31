@@ -5,48 +5,6 @@ type Props = {
   updater: UpdateUiState;
 };
 
-function DownloadIcon() {
-  return (
-    <svg
-      className="sidebar-update-icon-svg"
-      viewBox="0 0 16 16"
-      width="14"
-      height="14"
-      aria-hidden="true"
-      focusable="false"
-    >
-      {/* Arrow + tray kept inside viewBox with ~1.5px padding (Win/Mac). */}
-      <path
-        fill="currentColor"
-        d="M8 2a.75.75 0 0 1 .75.75v5.69l1.97-1.97a.75.75 0 1 1 1.06 1.06l-3.25 3.25a.75.75 0 0 1-1.06 0L3.22 7.53a.75.75 0 1 1 1.06-1.06l1.97 1.97V2.75A.75.75 0 0 1 8 2Z"
-      />
-      <path
-        fill="currentColor"
-        d="M3 12.25a.75.75 0 0 1 .75-.75h8.5a.75.75 0 0 1 0 1.5h-8.5A.75.75 0 0 1 3 12.25Z"
-      />
-    </svg>
-  );
-}
-
-function RefreshIcon() {
-  return (
-    <svg
-      className="sidebar-update-icon-svg"
-      viewBox="0 0 16 16"
-      width="14"
-      height="14"
-      aria-hidden="true"
-      focusable="false"
-    >
-      {/* Single circular arrow; geometry stays inside 1.5–14.5. */}
-      <path
-        fill="currentColor"
-        d="M8 2.5a5.5 5.5 0 0 0-4.9 2.99.75.75 0 1 1-1.34-.68A7 7 0 0 1 13.5 8h.75a.75.75 0 0 1 .53 1.28l-1.5 1.5a.75.75 0 0 1-1.06 0l-1.5-1.5A.75.75 0 0 1 11.25 8H12a5.5 5.5 0 1 0-4.75 5.45.75.75 0 0 1 .2 1.49A7 7 0 1 1 8 2.5Z"
-      />
-    </svg>
-  );
-}
-
 function formatCurrentVersion(v: string): string {
   if (!v) return "…";
   return v.startsWith("v") || v.startsWith("V") ? v : `v${v}`;
@@ -126,7 +84,7 @@ export default function SidebarUpdateFooter({ updater }: Props) {
             disabled={checking}
             onClick={() => void install()}
           >
-            <DownloadIcon />
+            更新
           </button>
         ) : showRefresh ? (
           <button
@@ -137,7 +95,7 @@ export default function SidebarUpdateFooter({ updater }: Props) {
             disabled={checking}
             onClick={() => void recheck()}
           >
-            <RefreshIcon />
+            更新
           </button>
         ) : null}
       </div>
