@@ -11,8 +11,9 @@
 
 export type InkCursorLockTerminal = {
   options: {
-    cursorStyle: string;
-    cursorBlink: boolean;
+    /** Matches xterm `ITerminalOptions` (optional until set). */
+    cursorStyle?: string;
+    cursorBlink?: boolean;
   };
   parser: {
     registerCsiHandler: (
@@ -24,15 +25,15 @@ export type InkCursorLockTerminal = {
 };
 
 export function inkHardwareCursorDrifted(opts: {
-  cursorStyle: string;
-  cursorBlink: boolean;
+  cursorStyle?: string;
+  cursorBlink?: boolean;
 }): boolean {
-  return opts.cursorStyle !== "bar" || opts.cursorBlink;
+  return opts.cursorStyle !== "bar" || !!opts.cursorBlink;
 }
 
 export function applyInkHardwareCursorLock(opts: {
-  cursorStyle: string;
-  cursorBlink: boolean;
+  cursorStyle?: string;
+  cursorBlink?: boolean;
 }): { cursorStyle: "bar"; cursorBlink: false } {
   opts.cursorStyle = "bar";
   opts.cursorBlink = false;
