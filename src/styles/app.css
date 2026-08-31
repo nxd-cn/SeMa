@@ -230,8 +230,15 @@ body {
   background: #252526;
   overflow: visible;
 }
-.sidebar-update-version {
+.sidebar-update-meta {
   flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow: hidden;
+}
+.sidebar-update-version {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -241,76 +248,48 @@ body {
   color: #888;
   user-select: none;
 }
-.sidebar-update-actions {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  overflow: visible;
-}
-.sidebar-update-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  box-sizing: border-box;
-  min-width: 24px;
-  height: 22px;
-  padding: 0 6px;
-  cursor: pointer;
-  color: #ccc;
-  background: #333;
-  border: 1px solid #444;
-  border-radius: 3px;
-  overflow: visible;
-  flex-shrink: 0;
-  font-size: 11px;
-  line-height: 1;
-  white-space: nowrap;
-  user-select: none;
-}
-.sidebar-update-btn:hover:not(:disabled) {
-  color: #fff;
-  background: #094771;
-  border-color: #0e639c;
-}
-.sidebar-update-btn:disabled {
-  opacity: 0.55;
-  cursor: default;
-}
-.sidebar-update-btn.is-checking {
-  opacity: 0.7;
-}
-.sidebar-update-progress {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
+.sidebar-update-status {
   min-width: 0;
-  max-width: 100%;
-  color: #bbb;
-  font-size: 10px;
-  line-height: 1;
-  user-select: none;
-}
-.sidebar-update-progress-bar {
-  display: block;
-  width: 36px;
-  height: 4px;
-  flex-shrink: 0;
-  overflow: hidden;
-  border-radius: 2px;
-  background: #3c3c3c;
-}
-.sidebar-update-progress-fill {
-  display: block;
-  height: 100%;
-  background: #0e639c;
-  border-radius: 2px;
-  transition: width 0.15s ease-out;
-}
-.sidebar-update-progress-text {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 10px;
+  line-height: 1.1;
+  color: #8a8a8a;
+  user-select: none;
+}
+.sidebar-update-status.is-error {
+  color: #f48771;
+}
+.sidebar-update-action {
+  flex-shrink: 0;
+  max-width: 55%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  line-height: 1;
+  color: #888;
+  user-select: none;
+}
+.sidebar-update-action.is-clickable {
+  color: #ccc;
+  cursor: pointer;
+}
+.sidebar-update-action.is-clickable:hover {
+  color: #fff;
+  text-decoration: underline;
+}
+.sidebar-update-action.is-clickable:focus-visible {
+  outline: 1px solid #0e639c;
+  outline-offset: 2px;
+}
+.sidebar-update-action.is-failed {
+  color: #f48771;
+}
+.sidebar-update-action.is-busy {
+  color: #8a8a8a;
+  cursor: default;
 }
 #tabs {
   list-style: none;

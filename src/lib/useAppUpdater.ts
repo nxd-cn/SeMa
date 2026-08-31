@@ -22,27 +22,40 @@ export type UpdateUiState = {
   busy: boolean;
   checking: boolean;
   checkFailed: boolean;
+  /** Brief status after a successful check with no newer version. */
+  upToDate: boolean;
   progress: UpdateProgress | null;
   error: string;
+  /** False in `tauri:dev` — updater APIs are skipped there. */
+  canUpdate: boolean;
   install: () => Promise<void>;
   recheck: () => Promise<void>;
 };
+
+function errMessage(e: unknown): string {
+  if (e instanceof Error && e.message) return e.message;
+  const s = String(e ?? "").trim();
+  return s || "未知错误";
+}
 
 /**
  * Packaged builds: check GitHub latest.json on launch (and on manual recheck).
  * Download / install / relaunch from the sidebar footer — no modal.
  */
 export function useAppUpdater(): UpdateUiState {
+  const canUpdate = !import.meta.env.DEV;
   const [currentVersion, setCurrentVersion] = useState("");
   const [offer, setOffer] = useState<UpdateOffer | null>(null);
   const [busy, setBusy] = useState(false);
   const [checking, setChecking] = useState(false);
   const [checkFailed, setCheckFailed] = useState(false);
+  const [upToDate, setUpToDate] = useState(false);
   const [progress, setProgress] = useState<UpdateProgress | null>(null);
   const [error, setError] = useState("");
   const updateRef = useRef<Update | null>(null);
   const checkingRef = useRef(false);
   const busyRef = useRef(false);
+  const upToDateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -56,21 +69,30 @@ export function useAppUpdater(): UpdateUiState {
     })();
     return () => {
       cancelled = true;
+      if (upToDateTimerRef.current) clearTimeout(upToDateTimerRef.current);
     };
   }, []);
 
+  const flashUpToDate = useCallback(() => {
+    setUpToDate(true);
+    if (upToDateTimerRef.current) clearTimeout(upToDateTimerRef.current);
+    upToDateTimerRef.current = setTimeout(() => setUpToDate(false), 4000);
+  }, []);
+
   const runCheck = useCallback(async () => {
-    if (import.meta.env.DEV) return;
+    if (!canUpdate) return;
     if (checkingRef.current || busyRef.current) return;
     checkingRef.current = true;
     setChecking(true);
     setError("");
+    setUpToDate(false);
     try {
       const update = await check();
       setCheckFailed(false);
       if (!update) {
         updateRef.current = null;
         setOffer(null);
+        flashUpToDate();
         return;
       }
       updateRef.current = update;
@@ -78,15 +100,16 @@ export function useAppUpdater(): UpdateUiState {
         version: update.version,
         notes: (update.body || "").trim(),
       });
-    } catch {
+    } catch (e) {
       updateRef.current = null;
       setOffer(null);
       setCheckFailed(true);
+      setError(errMessage(e));
     } finally {
       checkingRef.current = false;
       setChecking(false);
     }
-  }, []);
+  }, [canUpdate, flashUpToDate]);
 
   useEffect(() => {
     void runCheck();
@@ -103,6 +126,7 @@ export function useAppUpdater(): UpdateUiState {
     busyRef.current = true;
     setBusy(true);
     setError("");
+    setUpToDate(false);
     setProgress({
       downloaded: 0,
       total: 0,
@@ -134,7 +158,7 @@ export function useAppUpdater(): UpdateUiState {
       busyRef.current = false;
       setBusy(false);
       setProgress(null);
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errMessage(e));
     }
   }, []);
 
@@ -144,8 +168,10 @@ export function useAppUpdater(): UpdateUiState {
     busy,
     checking,
     checkFailed,
+    upToDate,
     progress,
     error,
+    canUpdate,
     install,
     recheck,
   };
