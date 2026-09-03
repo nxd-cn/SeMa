@@ -23,10 +23,22 @@ pub struct Prefs {
     pub split: Option<Value>,
     #[serde(default)]
     pub layout: Option<Value>,
+    #[serde(default = "default_doc_font_size")]
+    pub doc_font_size: u32,
+    #[serde(default = "default_term_font_size")]
+    pub term_font_size: u32,
 }
 
 fn default_sidebar_width() -> u32 {
     160
+}
+
+fn default_doc_font_size() -> u32 {
+    13
+}
+
+fn default_term_font_size() -> u32 {
+    11
 }
 
 impl Default for Prefs {
@@ -38,6 +50,8 @@ impl Default for Prefs {
             cli_counts: HashMap::new(),
             split: None,
             layout: None,
+            doc_font_size: 13,
+            term_font_size: 11,
         }
     }
 }
@@ -151,6 +165,16 @@ pub fn merge_prefs(mut prefs: Prefs, partial: &Value) -> Prefs {
             if let Some(n) = v.as_u64() {
                 prefs.cli_counts.insert(k.clone(), n);
             }
+        }
+    }
+    if let Some(v) = partial.get("docFontSize") {
+        if let Some(n) = v.as_u64() {
+            prefs.doc_font_size = n.clamp(10, 28) as u32;
+        }
+    }
+    if let Some(v) = partial.get("termFontSize") {
+        if let Some(n) = v.as_u64() {
+            prefs.term_font_size = n.clamp(8, 24) as u32;
         }
     }
     prefs

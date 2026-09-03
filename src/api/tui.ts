@@ -38,6 +38,8 @@ export type Prefs = {
   split: unknown;
   layout: unknown;
   homeDir: string;
+  docFontSize?: number;
+  termFontSize?: number;
 };
 
 export type CreateResult = {

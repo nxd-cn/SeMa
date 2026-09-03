@@ -15,6 +15,7 @@ import Sidebar from "./components/Sidebar";
 import TermColumnsScrollbar from "./components/TermColumnsScrollbar";
 import type { TermHandle } from "./components/TerminalHost";
 import { applyHorizontalWheel } from "./lib/horizontalWheel";
+import { clampDocFontSize, clampTermFontSize } from "./lib/docFontZoom";
 import { newSessionKeyAction } from "./lib/newSessionKeys";
 import { reorderGroupList } from "./lib/reorderGroups";
 import { sidebarToggleKeyAction } from "./lib/sidebarToggleKeys";
@@ -996,6 +997,12 @@ export default function App() {
         if (prefs.sidebarWidth) st.setSidebarWidth(prefs.sidebarWidth);
         st.setSidebarCollapsed(!!prefs.sidebarCollapsed);
         if (prefs.homeDir) st.setHomeDir(prefs.homeDir);
+        if (typeof prefs.docFontSize === "number") {
+          st.setDocFontSize(clampDocFontSize(prefs.docFontSize));
+        }
+        if (typeof prefs.termFontSize === "number") {
+          st.setTermFontSize(clampTermFontSize(prefs.termFontSize));
+        }
 
         const { tools: listed } = await tui.listCli();
         st.setTools(listed);

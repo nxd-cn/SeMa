@@ -1,8 +1,13 @@
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { marked } from "marked";
 import { tui } from "../api/tui";
 import { docSaveKeyAction, docSaveShortcutLabel } from "../lib/docSaveKeys";
+import {
+  clampDocFontSize,
+  docFontSizeFromWheel,
+} from "../lib/docFontZoom";
 import { isMarkdownPath } from "../lib/panePreview";
+import { useAppStore } from "../store/appStore";
 import ChromeVScrollbar from "./ChromeVScrollbar";
 
 export const DISCARD_UNSAVED_MESSAGE = "放弃未保存更改？";
@@ -127,8 +132,47 @@ export default function PaneDocView({
 }: Props) {
   const markdown = isMarkdownPath(path);
   const showPreview = markdown && mode === "preview";
+  const docFontSize = useAppStore((s) => s.docFontSize);
+  const setDocFontSize = useAppStore((s) => s.setDocFontSize);
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const scrollRef = useRef<HTMLElement | null>(null);
   const layoutKey = `${path}:${mode}:${showPreview ? text.length : "edit"}`;
+  const fontSizeRef = useRef(docFontSize);
+  fontSizeRef.current = docFontSize;
+  const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (!persistTimerRef.current) return;
+      clearTimeout(persistTimerRef.current);
+      persistTimerRef.current = null;
+      void tui.setPrefs({ docFontSize: useAppStore.getState().docFontSize });
+    };
+  }, []);
+
+  useEffect(() => {
+    const el = rootRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      const next = docFontSizeFromWheel(fontSizeRef.current, e, {
+        isMac: tui.isMac,
+      });
+      if (next == null) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (next === fontSizeRef.current) return;
+      setDocFontSize(next);
+      if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
+      persistTimerRef.current = setTimeout(() => {
+        persistTimerRef.current = null;
+        void tui.setPrefs({ docFontSize: useAppStore.getState().docFontSize });
+      }, 300);
+    };
+    // Capture + non-passive: Mac pinch (ctrlKey wheel) must run before WKWebView page zoom.
+    el.addEventListener("wheel", onWheel, { passive: false, capture: true });
+    return () =>
+      el.removeEventListener("wheel", onWheel, { capture: true });
+  }, [setDocFontSize]);
 
   const onKeyDown = useCallback(
     (ev: React.KeyboardEvent) => {
@@ -142,8 +186,11 @@ export default function PaneDocView({
     [dirty, onSave],
   );
 
+  const fontStyle = { fontSize: `${docFontSize}px` };
+
   return (
     <div
+      ref={rootRef}
       className="pane-doc-view"
       tabIndex={-1}
       onKeyDown={onKeyDown}
@@ -156,6 +203,7 @@ export default function PaneDocView({
               scrollRef.current = el;
             }}
             className="pane-doc-preview pane-doc-sandbox chrome-vscroll-port"
+            style={fontStyle}
             dangerouslySetInnerHTML={{ __html: renderMarkdown(text) }}
           />
         ) : (
@@ -164,6 +212,7 @@ export default function PaneDocView({
               scrollRef.current = el;
             }}
             className="pane-doc-editor chrome-vscroll-port"
+            style={fontStyle}
             value={text}
             spellCheck={false}
             onChange={(e) => onText(e.target.value)}

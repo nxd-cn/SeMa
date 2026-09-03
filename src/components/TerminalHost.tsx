@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { tui } from "../api/tui";
+import { termFontSizeFromWheel } from "../lib/docFontZoom";
 import { attachImeHeuristic } from "../lib/imeAnchor";
 import { attachInkHardwareCursorLock } from "../lib/lockInkHardwareCursor";
 import {
@@ -17,6 +18,7 @@ import {
   termOwnsFocus,
 } from "../lib/termScroll";
 import { attachCapsLockImeFix } from "../lib/xtermCapsLockIme";
+import { useAppStore } from "../store/appStore";
 
 export type TermHandle = {
   term: Terminal;
@@ -85,8 +87,14 @@ export default function TerminalHost({
   const hostRef = useRef<HTMLDivElement>(null);
   const termLocal = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
+  const fitPaneRef = useRef<(opts?: { force?: boolean }) => void>(() => {});
   const visibleRef = useRef(visible);
   const clearBufRef = useRef("");
+  const termFontSize = useAppStore((s) => s.termFontSize);
+  const setTermFontSize = useAppStore((s) => s.setTermFontSize);
+  const termFontSizeRef = useRef(termFontSize);
+  termFontSizeRef.current = termFontSize;
+  const persistFontTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const callbacks = useRef({
     onSubmitChat,
     onUserComposing,
@@ -168,6 +176,8 @@ export default function TerminalHost({
     void tui.resize(sessionId, cols, rows);
   };
 
+  fitPaneRef.current = fitPane;
+
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
@@ -188,7 +198,7 @@ export default function TerminalHost({
       cursorInactiveStyle: isSystemTerminal ? "block" : "outline",
       fontFamily:
         'Menlo, Monaco, Cascadia Mono, Consolas, "Courier New", monospace',
-      fontSize: 11,
+      fontSize: termFontSizeRef.current,
       theme: {
         background: bg,
         foreground: fg,
@@ -412,6 +422,44 @@ export default function TerminalHost({
     // sessionId is stable per mount
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
+
+  useEffect(() => {
+    const term = termLocal.current;
+    if (!term || term.options.fontSize === termFontSize) return;
+    term.options.fontSize = termFontSize;
+    fitPaneRef.current({ force: true });
+  }, [termFontSize]);
+
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+    const onWheel = (e: WheelEvent) => {
+      const next = termFontSizeFromWheel(termFontSizeRef.current, e, {
+        isMac: tui.isMac,
+      });
+      if (next == null) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (next === termFontSizeRef.current) return;
+      setTermFontSize(next);
+      if (persistFontTimerRef.current) {
+        clearTimeout(persistFontTimerRef.current);
+      }
+      persistFontTimerRef.current = setTimeout(() => {
+        persistFontTimerRef.current = null;
+        void tui.setPrefs({ termFontSize: useAppStore.getState().termFontSize });
+      }, 300);
+    };
+    host.addEventListener("wheel", onWheel, { passive: false, capture: true });
+    return () => {
+      host.removeEventListener("wheel", onWheel, { capture: true });
+      if (persistFontTimerRef.current) {
+        clearTimeout(persistFontTimerRef.current);
+        persistFontTimerRef.current = null;
+        void tui.setPrefs({ termFontSize: useAppStore.getState().termFontSize });
+      }
+    };
+  }, [setTermFontSize]);
 
   useEffect(() => {
     if (!visible) return;

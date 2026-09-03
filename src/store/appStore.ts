@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { ToolInfo } from "../api/tui";
+import { DEFAULT_DOC_FONT_SIZE, DEFAULT_TERM_FONT_SIZE } from "../lib/docFontZoom";
 import type { GroupState, PaneState } from "./types";
 
 export type ToastItem = { groupId: string; label: string };
@@ -9,6 +10,8 @@ type AppStore = {
   homeDir: string;
   sidebarWidth: number;
   sidebarCollapsed: boolean;
+  docFontSize: number;
+  termFontSize: number;
   groups: GroupState[];
   panes: Record<string, PaneState>;
   activeGroupId: string | null;
@@ -20,6 +23,8 @@ type AppStore = {
   setHomeDir: (homeDir: string) => void;
   setSidebarWidth: (width: number) => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
+  setDocFontSize: (size: number) => void;
+  setTermFontSize: (size: number) => void;
   setWindowFocused: (focused: boolean) => void;
 
   upsertPane: (pane: PaneState) => void;
@@ -50,6 +55,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
   homeDir: "",
   sidebarWidth: 160,
   sidebarCollapsed: false,
+  docFontSize: DEFAULT_DOC_FONT_SIZE,
+  termFontSize: DEFAULT_TERM_FONT_SIZE,
   groups: [],
   panes: {},
   activeGroupId: null,
@@ -61,6 +68,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
   setHomeDir: (homeDir) => set({ homeDir }),
   setSidebarWidth: (sidebarWidth) => set({ sidebarWidth }),
   setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
+  setDocFontSize: (docFontSize) => set({ docFontSize }),
+  setTermFontSize: (termFontSize) => set({ termFontSize }),
   setWindowFocused: (windowFocused) => set({ windowFocused }),
 
   upsertPane: (pane) =>
