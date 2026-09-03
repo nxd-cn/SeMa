@@ -343,12 +343,10 @@ body {
   font: inherit;
   outline: none;
 }
-#tabs li.busy,
-#tabs li.unread {
+#tabs li.busy {
   padding-left: 18px;
 }
-#tabs li.busy::before,
-#tabs li.unread::before {
+#tabs li.busy::before {
   content: "";
   position: absolute;
   left: 6px;
@@ -357,14 +355,21 @@ body {
   height: 6px;
   margin-top: -3px;
   border-radius: 50%;
-}
-#tabs li.busy::before {
   background: #3ecf8e;
   animation: pulse-dot 1s ease-in-out infinite;
 }
-#tabs li.unread:not(.busy)::before {
-  background: #3794ff;
-  animation: none;
+/* Unread (turn finished, not viewing): left accent bar + subtle tint (scheme B). */
+#tabs li.unread:not(.busy) {
+  padding-left: 11px;
+  background: #272b30;
+  box-shadow: inset 3px 0 0 #3794ff;
+}
+#tabs li.unread:not(.busy).active {
+  background: #094771;
+  box-shadow: inset 3px 0 0 #5eb1ff;
+}
+#tabs li.unread:not(.busy):hover:not(.active) {
+  background: #2e3339;
 }
 @keyframes pulse-dot {
   0%,
