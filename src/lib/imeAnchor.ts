@@ -15,7 +15,7 @@ type BufferLineLike = {
   getCell: (x: number) => { isInverse: () => boolean | number } | null | undefined;
 };
 
-type BufferLike = {
+export type BufferLike = {
   viewportY: number;
   getLine: (y: number) => BufferLineLike | null | undefined;
 };
