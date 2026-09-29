@@ -14,6 +14,7 @@ import {
 } from "../lib/termFitSafe";
 import {
   captureTermScroll,
+  type TermScrollSnapshot,
   restoreTermScroll,
   termOwnsFocus,
 } from "../lib/termScroll";
@@ -95,6 +96,9 @@ export default function TerminalHost({
   const termFontSizeRef = useRef(termFontSize);
   termFontSizeRef.current = termFontSize;
   const persistFontTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scrollSnapRef = useRef<TermScrollSnapshot | null>(null);
+  const lastHostSizeRef = useRef<{ w: number; h: number } | null>(null);
+  const fitRafRef = useRef<number>(0);
   const callbacks = useRef({
     onSubmitChat,
     onUserComposing,
@@ -119,10 +123,26 @@ export default function TerminalHost({
     const host = hostRef.current;
     if (!term || !fit || !host) return;
     if (!opts?.force && !visibleRef.current) return;
+    const hostW = host.clientWidth | 0;
+    const hostH = host.clientHeight | 0;
+    const prevSize = lastHostSizeRef.current;
+    // Switching tabs often re-triggers observers without real size changes.
+    // Skip redundant fit cycles to avoid black flicker/repaint jumps.
+    if (
+      !opts?.force &&
+      prevSize &&
+      prevSize.w === hostW &&
+      prevSize.h === hostH
+    ) {
+      if (scrollSnapRef.current) restoreTermScroll(term, scrollSnapRef.current);
+      return;
+    }
+    lastHostSizeRef.current = { w: hostW, h: hostH };
 
     // Sibling split (top-right CLI) shrinks this host; layout can zero
     // scrollTop and xterm then jumps ydisp to the top of scrollback.
-    const scrollSnap = captureTermScroll(term.buffer.active);
+    const scrollSnap =
+      scrollSnapRef.current ?? captureTermScroll(term.buffer.active);
 
     const core = term as unknown as CoreDims;
     const dims = core._core?._renderService?.dimensions;
@@ -133,7 +153,7 @@ export default function TerminalHost({
       if (!canFitInHost(host.clientWidth, host.clientHeight, cellW, cellH)) {
         return;
       }
-    } else if (host.clientWidth < 160 || host.clientHeight < 80) {
+    } else if (hostW < 160 || hostH < 80) {
       return;
     }
 
@@ -143,8 +163,8 @@ export default function TerminalHost({
 
     if (cellW > 0 && cellH > 0) {
       const proposed = proposeFitDimensions(
-        host.clientWidth,
-        host.clientHeight,
+        hostW,
+        hostH,
         cellW,
         cellH,
         { scrollbarWidth: 0 }
@@ -154,10 +174,10 @@ export default function TerminalHost({
         rows = clampRowsToClientHeight(
           proposed.rows,
           cellH,
-          host.clientHeight
+          hostH
         );
       } else {
-        rows = clampRowsToClientHeight(rows, cellH, host.clientHeight);
+        rows = clampRowsToClientHeight(rows, cellH, hostH);
       }
       if (term.cols !== cols || term.rows !== rows) {
         term.resize(cols, rows);
@@ -171,12 +191,21 @@ export default function TerminalHost({
     }
 
     restoreTermScroll(term, scrollSnap);
+    scrollSnapRef.current = captureTermScroll(term.buffer.active);
 
     if (cols < MIN_FIT_COLS || rows < MIN_FIT_ROWS) return;
     void tui.resize(sessionId, cols, rows);
   };
 
   fitPaneRef.current = fitPane;
+
+  const scheduleFit = (opts?: { force?: boolean }) => {
+    if (fitRafRef.current) return;
+    fitRafRef.current = requestAnimationFrame(() => {
+      fitRafRef.current = 0;
+      fitPane(opts);
+    });
+  };
 
   useEffect(() => {
     const host = hostRef.current;
@@ -191,8 +220,12 @@ export default function TerminalHost({
     const bg = "#0c0c0c";
     const fg = "#cccccc";
     const isSystemTerminal = cliId === "terminal";
+    // Claude can sit in non-Ink states where the inverse caret is absent.
+    // Keep bar cursor (no cell fill) but make it visible for Claude only.
+    const needsVisibleBarCursor = cliId === "claude";
+    const needsBlinkingBarCursor = cliId === "claude";
     const term = new Terminal({
-      cursorBlink: isSystemTerminal,
+      cursorBlink: isSystemTerminal || needsBlinkingBarCursor,
       cursorStyle: isSystemTerminal ? "block" : "bar",
       cursorWidth: 1,
       cursorInactiveStyle: isSystemTerminal ? "block" : "outline",
@@ -202,7 +235,7 @@ export default function TerminalHost({
       theme: {
         background: bg,
         foreground: fg,
-        cursor: isSystemTerminal ? fg : bg,
+        cursor: isSystemTerminal || needsVisibleBarCursor ? fg : bg,
         cursorAccent: bg,
         selectionBackground: "#264f78",
         selectionInactiveBackground: "#264f78",
@@ -220,7 +253,9 @@ export default function TerminalHost({
     // CLIs may DECSCUSR → block and erase the Ink caret; keep bar locked.
     const inkCursorLock = isSystemTerminal
       ? null
-      : attachInkHardwareCursorLock(term);
+      : attachInkHardwareCursorLock(term, {
+          blink: needsBlinkingBarCursor,
+        });
     // Mac only: CapsLock 中/英 during composition double-sends on WKWebView.
     const capsLockIme = tui.isMac ? attachCapsLockImeFix(term) : null;
 
@@ -233,6 +268,7 @@ export default function TerminalHost({
           term.clear();
           term.write("\x1b[0m\x1b[2J\x1b[H");
           term.scrollToBottom();
+          scrollSnapRef.current = captureTermScroll(term.buffer.active);
         } catch {
           /* ignore */
         }
@@ -277,6 +313,9 @@ export default function TerminalHost({
     };
 
     const dataDisp = term.onData((data) => writeToSession(data));
+    const scrollDisp = term.onScroll(() => {
+      scrollSnapRef.current = captureTermScroll(term.buffer.active);
+    });
 
     term.attachCustomKeyEventHandler((ev) => {
       if (
@@ -336,16 +375,76 @@ export default function TerminalHost({
         void tui.clipboardWrite(term.getSelection());
         return false;
       }
+      // WebView paste events often have empty clipboardData — handle on keydown
+      // via Tauri/system clipboard APIs (text + image).
       if (action === "paste") {
         ev.preventDefault();
         ev.stopPropagation();
-        void tui.clipboardRead().then((text) => {
-          if (text) writeToSession(text);
-        });
+        void runPaste("key");
         return false;
       }
       return true;
     });
+
+    const insertDroppedImages = async (files: FileList | File[]) => {
+      const list = Array.from(files);
+      for (const file of list) {
+        const path = await tui.saveImageFile(file);
+        if (!path) continue;
+        const attach = tui.formatImageAttach(path, cliId);
+        if (attach) writeToSession(attach);
+      }
+    };
+
+    // Dedupe keydown + paste event (some WebViews fire both).
+    let pasteBusy = false;
+    const runPaste = async (source: "key" | "event", e?: ClipboardEvent) => {
+      if (pasteBusy) return;
+      pasteBusy = true;
+      try {
+        const text =
+          source === "event" && e
+            ? await tui.pasteFromClipboardEvent(e, cliId)
+            : await tui.clipboardReadForPaste(cliId);
+        if (text) writeToSession(text);
+      } finally {
+        window.setTimeout(() => {
+          pasteBusy = false;
+        }, 200);
+      }
+    };
+
+    // Backup when the browser delivers clipboardData (and key path missed it).
+    const onPaste = (e: ClipboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      void runPaste("event", e);
+    };
+    term.textarea?.addEventListener("paste", onPaste, true);
+    host.addEventListener("paste", onPaste, true);
+
+    const onDragOver = (e: DragEvent) => {
+      if (!e.dataTransfer?.types?.includes("Files")) return;
+      e.preventDefault();
+      e.stopPropagation();
+      e.dataTransfer.dropEffect = "copy";
+    };
+    const onDragEnter = (e: DragEvent) => {
+      if (!e.dataTransfer?.types?.includes("Files")) return;
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    const onDrop = (e: DragEvent) => {
+      const files = e.dataTransfer?.files;
+      if (!files?.length) return;
+      e.preventDefault();
+      e.stopPropagation();
+      void insertDroppedImages(files);
+      focusTerm(term);
+    };
+    host.addEventListener("dragenter", onDragEnter);
+    host.addEventListener("dragover", onDragOver);
+    host.addEventListener("drop", onDrop);
 
     const unData = tui.onData(({ id, data }) => {
       if (id !== sessionId) return;
@@ -370,7 +469,7 @@ export default function TerminalHost({
                 term.textarea,
                 document.activeElement
               );
-              fitPane();
+              scheduleFit();
               // Sibling pane resize must not steal focus from the new CLI.
               if (keepFocus) focusTerm(term);
             });
@@ -378,12 +477,12 @@ export default function TerminalHost({
         : null;
     ro?.observe(host);
 
-    // Layout often settles after first paint (#root height / flex); refit a few times.
-    const fitTimers = [0, 50, 200, 500].map((ms) =>
+    // Layout settle: keep one immediate + one delayed pass only.
+    const fitTimers = [0, 180].map((ms) =>
       window.setTimeout(() => {
         if (!visibleRef.current) return;
         const keepFocus = termOwnsFocus(term.textarea, document.activeElement);
-        fitPane();
+        scheduleFit();
         if (keepFocus || ms === 0) focusTerm(term);
       }, ms)
     );
@@ -393,8 +492,18 @@ export default function TerminalHost({
       unData();
       unExit();
       dataDisp.dispose();
+      scrollDisp.dispose();
+      term.textarea?.removeEventListener("paste", onPaste, true);
+      host.removeEventListener("paste", onPaste, true);
+      host.removeEventListener("dragenter", onDragEnter);
+      host.removeEventListener("dragover", onDragOver);
+      host.removeEventListener("drop", onDrop);
       ro?.disconnect();
       if (fitRoRaf) cancelAnimationFrame(fitRoRaf);
+      if (fitRafRef.current) {
+        cancelAnimationFrame(fitRafRef.current);
+        fitRafRef.current = 0;
+      }
       try {
         capsLockIme?.detach();
       } catch {
@@ -427,7 +536,7 @@ export default function TerminalHost({
     const term = termLocal.current;
     if (!term || term.options.fontSize === termFontSize) return;
     term.options.fontSize = termFontSize;
-    fitPaneRef.current({ force: true });
+    scheduleFit({ force: true });
   }, [termFontSize]);
 
   useEffect(() => {
@@ -462,18 +571,28 @@ export default function TerminalHost({
   }, [setTermFontSize]);
 
   useEffect(() => {
-    if (!visible) return;
+    const term = termLocal.current;
+    if (!term) return;
+    if (!visible) {
+      // Keep last known good anchor before pane is parked.
+      scrollSnapRef.current = captureTermScroll(term.buffer.active);
+      return;
+    }
     requestAnimationFrame(() => {
-      fitPane();
-      const term = termLocal.current;
-      if (term) focusTerm(term);
+      // Restore first for smooth visual continuity; fit only if host size changed.
+      const t = termLocal.current;
+      if (t) {
+        if (scrollSnapRef.current) restoreTermScroll(t, scrollSnapRef.current);
+        focusTerm(t);
+      }
+      scheduleFit();
     });
   }, [visible]);
 
   useEffect(() => {
     const onResize = () => {
       if (!visibleRef.current) return;
-      fitPane();
+      scheduleFit();
     };
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);

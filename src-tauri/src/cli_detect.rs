@@ -129,6 +129,37 @@ pub fn detect_tools() -> Vec<ToolInfo> {
     tools
 }
 
+/// Resolve one tool by id without scanning the whole catalog.
+pub fn detect_tool_by_id(cli_id: &str) -> Option<ToolInfo> {
+    if cli_id == "terminal" {
+        return Some(terminal_tool());
+    }
+    let entry = CATALOG.iter().find(|e| e.id == cli_id)?;
+    for name in entry.candidates {
+        if let Some(path) = resolve_command(name) {
+            return Some(ToolInfo {
+                id: entry.id.to_string(),
+                label: entry.label.to_string(),
+                command: (*name).to_string(),
+                path,
+            });
+        }
+    }
+    None
+}
+
+/// Preferred command name by tool id, used for fast-start fallback when
+/// tool cache is not ready yet.
+pub fn default_command_for_id(cli_id: &str) -> Option<&'static str> {
+    if cli_id == "terminal" {
+        return Some("terminal");
+    }
+    CATALOG
+        .iter()
+        .find(|e| e.id == cli_id)
+        .and_then(|e| e.candidates.first().copied())
+}
+
 pub fn tool_for_id<'a>(tools: &'a [ToolInfo], cli_id: &str) -> Option<&'a ToolInfo> {
     tools.iter().find(|t| t.id == cli_id)
 }

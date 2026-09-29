@@ -78,7 +78,7 @@ cd src-tauri && cargo test
 - **续聊路径探测（Mac）**：`resolve` + `realpath` 候选；Claude / Cursor hash / Pi / OpenCode 均走候选
 - **Cursor 会话绑定**：只认存在 `store.db` 的目录；无效 id 的 ↻ 回退 last-in-cwd（OpenCode 在 Mac 仍不传 `--continue`）
 - **同目录多分栏续聊**：优先绑定 `cliSessionId`；否则最新未占用 + claim；**新开栏不要在 spawn 时 discover**，仅该栏用户提交后 discover。CLI `/clear`（`/new`/`/reset`）会换新会话 id：输入检测后立刻清绑定并 rediscover；提交后短轮询 + 回合 idle / ↻ / 恢复时 `follow` 到更新的未占用 id
-- **终端选区 / 剪贴板**：右键菜单两边相同。Win `Ctrl(+Shift)+C/V`；Mac `Cmd+C/V`。仅 Windows：`Ctrl+Z` → `\x1f`（禁止 `\x1a` EOF）。`Ctrl+U` → `\x15`
+- **终端选区 / 剪贴板**：右键菜单两边相同。Win `Ctrl(+Shift)+C/V`；Mac `Cmd+C/V`。仅 Windows：`Ctrl+Z` → `\x1f`（禁止 `\x1a` EOF）。`Ctrl+U` → `\x15`。**图片附件**（Win + Mac）：栏内拖入图片文件；粘贴支持（1）Explorer **CF_HDROP** / Finder **file URL 列表** → 直接 `@原绝对路径`（2）Win「复制路径」/ Mac `⌥⌘C` 文本路径（含 `file://`）（3）截图等位图 → 落盘临时 PNG 再 `@path`（Terminal 写裸路径）。共享 `clipboard_save_image`（arboard `file_list` + `get_image`）与 `parseClipboardImagePath`；`file://` 解析按平台：Win 剥 `/C:`，Mac 保留 `/Users/...`。依赖 `dragDropEnabled: false` 的 HTML5 drop
 - **应用内快捷键**（仅 SeMa 窗口前台生效，非 OS 全局热键；避免裸 Ctrl+N/B 抢 PTY readline）：
   - 新建会话：Mac `⌘⇧N` / Win `Ctrl+Shift+N`（`src/lib/newSessionKeys.ts`）
   - 显隐侧栏：Mac `⌘⇧B` / Win `Ctrl+Shift+B`（`src/lib/sidebarToggleKeys.ts`）

@@ -521,11 +521,9 @@ export default function App() {
       const s = useAppStore.getState();
       const g = s.groups.find((x) => x.id === groupId);
       if (!g || !g.paneIds.length) return;
-      const prevId = s.activeGroupId;
-      if (prevId && prevId !== groupId) {
-        disarmPostTurnIdle(prevId);
-      }
-      // Unparking also refits and can redraw a finished TUI — settle target too.
+      // Unparking also refits and can redraw a finished TUI — settle target.
+      // Do not disarm the previous group on leave: it may still be actively
+      // executing with delayed tokens, and must retain pulse re-arm behavior.
       disarmPostTurnIdle(groupId);
       const focus =
         g.focusId && g.paneIds.includes(g.focusId)
@@ -599,6 +597,30 @@ export default function App() {
       }
 
       s.upsertPane(pane);
+      if (cliId !== "terminal") {
+        void tui
+          .probeResume({ cliId, cwd })
+          .then((probe) => {
+            const sNow = useAppStore.getState();
+            const cur = sNow.panes[result.id];
+            if (!cur || cur.cliId !== cliId || cur.cwd !== cwd) return;
+            const canResume = !!probe?.canResume;
+            const keepPending = !!cur.resumeOfferPending && !cur.continueDismissed;
+            const shouldOfferFromProbe =
+              !cur.continueDismissed && !!probe?.canResume && !cur.cliSessionId;
+            sNow.updatePane(result.id, {
+              canResume,
+              knownBefore: Array.isArray(probe?.knownBefore)
+                ? probe.knownBefore.map(String)
+                : [],
+              // Do not clear a layout/bound resume offer just because probe arrived.
+              resumeOfferPending: keepPending || shouldOfferFromProbe,
+            });
+          })
+          .catch(() => {
+            /* best-effort background probe */
+          });
+      }
       const s2 = useAppStore.getState();
       const existing = s2.groups.find((g) => g.id === groupId);
       if (existing) {
@@ -819,16 +841,11 @@ export default function App() {
         artifactsIncludeHistory: true,
         artifactsSinceSeq: undefined,
       });
-      if (cur.cliSessionId) {
-        await followCliSession(sessionId, { timeoutMs: 3000 });
-        cur = useAppStore.getState().panes[sessionId] || cur;
-      }
       const handle = terms.current.get(sessionId);
       // Fit first so spawn uses the real pane size (avoids TUI drawing at 120×40).
       handle?.refit();
       const cols = Math.max(20, handle?.cols() || 120);
       const rows = Math.max(5, handle?.rows() || 40);
-      handle?.resetClear();
       try {
         const result = await tui.respawnSession({
           id: sessionId,
@@ -854,7 +871,6 @@ export default function App() {
         }
       } catch {
         try {
-          handle?.resetClear();
           s.updatePane(sessionId, { cliSessionId: null });
           await persistLayout();
           await tui.respawnSession({
@@ -966,7 +982,9 @@ export default function App() {
       if (action === "copy") {
         void tui.clipboardWrite(handle.getSelection());
       } else if (action === "paste") {
-        const text = await tui.clipboardRead();
+        const text = await tui.clipboardReadForPaste(
+          useAppStore.getState().panes[menu.paneId]?.cliId
+        );
         if (text) {
           if (tui.dataLooksLikeSubmit(text)) {
             noticeUserStartedChat(menu.paneId);

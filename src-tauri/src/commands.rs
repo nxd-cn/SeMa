@@ -10,14 +10,17 @@ use tauri_plugin_dialog::DialogExt;
 
 use crate::artifacts::ArtifactsResult;
 use crate::badge::apply_badge;
-use crate::cli_detect::{detect_tools, sort_tools_by_usage, tool_for_id, ToolInfo};
+use crate::cli_detect::{
+    default_command_for_id, detect_tool_by_id, detect_tools, sort_tools_by_usage, tool_for_id,
+    ToolInfo,
+};
 use crate::fs_text;
 use crate::git;
 use crate::platform::{folder_name, home_dir};
 use crate::prefs::{load_prefs, merge_prefs, save_prefs, write_cli_cache, PrefsWithHome};
 use crate::pty::{self, new_session_id};
 use crate::resume::{
-    can_resume, follow_rotated_session, list_session_ids, pick_created_since,
+    can_resume, follow_rotated_session, list_session_ids, pick_created_since, resume_args_for_id,
     resolve_resume_selection, ResumeOpts,
 };
 use crate::spawn::spawn_target;
@@ -37,6 +40,13 @@ pub struct CreateResult {
     pub label: String,
     pub can_resume: bool,
     pub cli_session_id: Option<String>,
+    pub known_before: Vec<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResumeProbeResult {
+    pub can_resume: bool,
     pub known_before: Vec<String>,
 }
 
@@ -149,26 +159,51 @@ pub fn session_create(
     if !Path::new(&cwd).is_dir() {
         return Err(format!("目录不存在: {cwd}"));
     }
-    let tools = {
-        let g = state.tools.lock();
-        if g.is_empty() {
-            drop(g);
-            refresh_tools(&app, &state)
-        } else {
-            g.clone()
-        }
-    };
-    let cli_id = cli_id
+    let preferred_cli_id = cli_id;
+    let tools = state.tools.lock().clone();
+    let cli_id = preferred_cli_id
+        .clone()
         .or_else(|| tools.first().map(|t| t.id.clone()))
         .ok_or_else(|| "未检测到可用 CLI".to_string())?;
-    let tool = tool_for_id(&tools, &cli_id).ok_or_else(|| format!("未找到 CLI: {cli_id}"))?;
+    let tool = if let Some(found) = tool_for_id(&tools, &cli_id) {
+        found.clone()
+    } else if let Some(single) = detect_tool_by_id(&cli_id) {
+        // Keep app tool cache fresh in background; do not block opening this pane.
+        let handle = app.clone();
+        std::thread::spawn(move || {
+            let listed = detect_tools();
+            let _ = write_cli_cache(&handle, &listed);
+            if let Some(app_state) = handle.try_state::<AppState>() {
+                *app_state.tools.lock() = listed;
+            }
+        });
+        single
+    } else {
+        // Fast fallback: skip PATH probing on the critical path.
+        // Spawn by command name; PATH resolution is left to OS process creation.
+        let command = default_command_for_id(&cli_id)
+            .ok_or_else(|| format!("未找到 CLI: {cli_id}"))?
+            .to_string();
+        let synthetic = ToolInfo {
+            id: cli_id.clone(),
+            label: cli_id.clone(),
+            command: command.clone(),
+            path: command,
+        };
+        // Background refresh for UI tool cache/order; non-blocking.
+        let handle = app.clone();
+        std::thread::spawn(move || {
+            let listed = detect_tools();
+            let _ = write_cli_cache(&handle, &listed);
+            if let Some(app_state) = handle.try_state::<AppState>() {
+                *app_state.tools.lock() = listed;
+            }
+        });
+        synthetic
+    };
 
     let id = new_session_id();
     let label = format!("{} · {}", tool.command, folder_name(&cwd));
-    let known_before: Vec<String> = list_session_ids(&cli_id, &cwd, None)
-        .into_iter()
-        .map(|e| e.id)
-        .collect();
 
     let mut launch_extra: Vec<String> = Vec::new();
     let mut assigned: Option<String> = None;
@@ -198,14 +233,41 @@ pub fn session_create(
     *prefs.cli_counts.entry(cli_id.clone()).or_insert(0) += 1;
     save_prefs(&app, &prefs)?;
 
-    let resume_ok = can_resume(&cli_id, &cwd, None) && assigned.is_none();
     Ok(CreateResult {
         id,
         label,
-        can_resume: resume_ok,
+        // Resume checks scan on-disk history and may be slow on large stores.
+        // Probe them in background after pane is visible.
+        can_resume: false,
         cli_session_id: assigned,
-        known_before,
+        known_before: Vec::new(),
     })
+}
+
+#[tauri::command]
+pub async fn session_probe_resume(
+    cli_id: String,
+    cwd: String,
+) -> Result<ResumeProbeResult, String> {
+    if cli_id.trim().is_empty() || cwd.trim().is_empty() || cli_id == "terminal" {
+        return Ok(ResumeProbeResult {
+            can_resume: false,
+            known_before: Vec::new(),
+        });
+    }
+    tokio::task::spawn_blocking(move || {
+        let known_before: Vec<String> = list_session_ids(&cli_id, &cwd, None)
+            .into_iter()
+            .map(|e| e.id)
+            .collect();
+        let can_resume = can_resume(&cli_id, &cwd, None);
+        ResumeProbeResult {
+            can_resume,
+            known_before,
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 fn clamp_pty_size(cols: Option<u16>, rows: Option<u16>) -> (u16, u16) {
@@ -258,18 +320,54 @@ pub fn session_respawn(
         .cloned()
         .ok_or_else(|| format!("未找到 CLI: {cli_id}"))?;
 
-    let claimed = state.claims.lock().claimed_ids(&cli_id, &cwd, Some(&id));
-    let selection = resolve_resume_selection(
-        &cli_id,
-        &cwd,
-        &ResumeOpts {
-            resume: true,
-            cli_session_id: cli_session_id.clone(),
-            exclude_ids: exclude_ids.unwrap_or_default(),
-            claimed_ids: claimed,
-        },
-        None,
-    );
+    let selection = {
+        let bound = cli_session_id
+            .as_deref()
+            .map(str::trim)
+            .unwrap_or("")
+            .to_string();
+        let excluded = exclude_ids
+            .clone()
+            .unwrap_or_default()
+            .into_iter()
+            .any(|x| x.trim() == bound);
+        if !bound.is_empty() && !excluded {
+            let by_id = resume_args_for_id(&cli_id, Some(&bound));
+            if !by_id.is_empty() {
+                crate::resume::ResumeSelection {
+                    args: by_id,
+                    resolved_id: Some(bound),
+                    used_bound: true,
+                }
+            } else {
+                let claimed = state.claims.lock().claimed_ids(&cli_id, &cwd, Some(&id));
+                resolve_resume_selection(
+                    &cli_id,
+                    &cwd,
+                    &ResumeOpts {
+                        resume: true,
+                        cli_session_id: cli_session_id.clone(),
+                        exclude_ids: exclude_ids.unwrap_or_default(),
+                        claimed_ids: claimed,
+                    },
+                    None,
+                )
+            }
+        } else {
+            let claimed = state.claims.lock().claimed_ids(&cli_id, &cwd, Some(&id));
+            resolve_resume_selection(
+                &cli_id,
+                &cwd,
+                &ResumeOpts {
+                    resume: true,
+                    cli_session_id: cli_session_id.clone(),
+                    exclude_ids: exclude_ids.unwrap_or_default(),
+                    claimed_ids: claimed,
+                },
+                None,
+            )
+        }
+    };
 
     {
         let mut claims = state.claims.lock();
@@ -512,6 +610,29 @@ pub async fn read_text_file(path: String, max_bytes: Option<u64>) -> Result<Stri
 #[tauri::command]
 pub async fn write_text_file(path: String, contents: String) -> Result<(), String> {
     tokio::task::spawn_blocking(move || fs_text::write_text_file(&path, &contents))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn save_image_bytes(
+    bytes_b64: String,
+    filename_hint: Option<String>,
+) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        use base64::Engine;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(bytes_b64.trim())
+            .map_err(|e| e.to_string())?;
+        crate::image_temp::save_image_bytes(&bytes, filename_hint.as_deref())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn clipboard_save_image() -> Result<String, String> {
+    tokio::task::spawn_blocking(crate::image_temp::save_clipboard_image)
         .await
         .map_err(|e| e.to_string())?
 }

@@ -34,18 +34,24 @@ export function inkHardwareCursorDrifted(opts: {
 export function applyInkHardwareCursorLock(opts: {
   cursorStyle?: string;
   cursorBlink?: boolean;
-}): { cursorStyle: "bar"; cursorBlink: false } {
+  blink?: boolean;
+}): { cursorStyle: "bar"; cursorBlink: boolean } {
+  const blink = !!opts.blink;
   opts.cursorStyle = "bar";
-  opts.cursorBlink = false;
-  return { cursorStyle: "bar", cursorBlink: false };
+  opts.cursorBlink = blink;
+  return { cursorStyle: "bar", cursorBlink: blink };
 }
 
 export type InkCursorLockHandle = { detach: () => void };
 
 export function attachInkHardwareCursorLock(
-  term: InkCursorLockTerminal
+  term: InkCursorLockTerminal,
+  opts?: { blink?: boolean }
 ): InkCursorLockHandle {
-  applyInkHardwareCursorLock(term.options);
+  const targetBlink = !!opts?.blink;
+  applyInkHardwareCursorLock({ ...term.options, blink: targetBlink });
+  term.options.cursorStyle = "bar";
+  term.options.cursorBlink = targetBlink;
 
   const csi = term.parser.registerCsiHandler(
     { intermediates: " ", final: "q" },
@@ -53,8 +59,12 @@ export function attachInkHardwareCursorLock(
   );
 
   const render = term.onRender(() => {
-    if (inkHardwareCursorDrifted(term.options)) {
-      applyInkHardwareCursorLock(term.options);
+    if (
+      term.options.cursorStyle !== "bar" ||
+      !!term.options.cursorBlink !== targetBlink
+    ) {
+      term.options.cursorStyle = "bar";
+      term.options.cursorBlink = targetBlink;
     }
   });
 

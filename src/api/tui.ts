@@ -11,6 +11,13 @@ import {
   UNDO_PAYLOAD,
 } from "../lib/clipboardKeys";
 import {
+  fileSystemPath,
+  formatImageAttach,
+  isImageFileName,
+  isImageMime,
+  parseClipboardImagePath,
+} from "../lib/imageAttach";
+import {
   looksLikeCliClearSubmit,
   pushCliClearBuffer,
 } from "../lib/cliClearCommand";
@@ -19,6 +26,122 @@ import {
   chatSubmitKeyAction,
   dataLooksLikeSubmit,
 } from "../lib/continueDismissKeys";
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
+async function saveImageFile(file: File): Promise<string | null> {
+  const existing = fileSystemPath(file);
+  if (existing && (isImageFileName(existing) || isImageMime(file.type))) {
+    return existing;
+  }
+  // Clipboard blobs may have empty name; trust image/* mime.
+  if (!isImageMime(file.type) && !isImageFileName(file.name || "x.png")) {
+    return null;
+  }
+  try {
+    const buf = new Uint8Array(await file.arrayBuffer());
+    if (!buf.length) return null;
+    return await invoke<string>("save_image_bytes", {
+      bytesB64: bytesToBase64(buf),
+      filenameHint: file.name || "paste.png",
+    });
+  } catch {
+    return null;
+  }
+}
+
+async function clipboardReadForPaste(cliId?: string): Promise<string | null> {
+  // 0) Native: file-path clipboard (Explorer/Finder copy) OR bitmap → path
+  try {
+    const path = await invoke<string>("clipboard_save_image");
+    const attach = formatImageAttach(path, cliId);
+    if (attach) return attach;
+  } catch {
+    /* no image / no file */
+  }
+
+  // 1) Chromium Clipboard API image blobs (screenshots in some WebViews)
+  try {
+    if (navigator.clipboard && "read" in navigator.clipboard) {
+      const items = await navigator.clipboard.read();
+      for (const item of items) {
+        const imageType = item.types.find((t) => t.startsWith("image/"));
+        if (!imageType) continue;
+        const blob = await item.getType(imageType);
+        const ext = imageType.split("/")[1] || "png";
+        const file = new File([blob], `paste.${ext}`, { type: imageType });
+        const path = await saveImageFile(file);
+        if (!path) continue;
+        const attach = formatImageAttach(path, cliId);
+        if (attach) return attach;
+      }
+    }
+  } catch {
+    /* permission / empty */
+  }
+
+  // 2) Plain text / Win "Copy as path" / Mac Option+Cmd+C
+  try {
+    const text = await readText();
+    if (!text) return null;
+    const path = parseClipboardImagePath(text);
+    if (path) {
+      const attach = formatImageAttach(path, cliId);
+      if (attach) return attach;
+    }
+    return text;
+  } catch {
+    return null;
+  }
+}
+
+async function pasteFromClipboardEvent(
+  e: ClipboardEvent,
+  cliId?: string
+): Promise<string | null> {
+  const items = e.clipboardData?.items;
+  if (items?.length) {
+    for (const item of Array.from(items)) {
+      // Explorer paste: kind=file with local path on File
+      if (item.kind === "file") {
+        const file = item.getAsFile();
+        if (!file) continue;
+        if (!isImageMime(file.type) && !isImageFileName(file.name)) continue;
+        const path = await saveImageFile(file);
+        if (!path) continue;
+        const attach = formatImageAttach(path, cliId);
+        if (attach) return attach;
+      }
+      if (item.type.startsWith("image/")) {
+        const file = item.getAsFile();
+        if (!file) continue;
+        const path = await saveImageFile(file);
+        if (!path) continue;
+        const attach = formatImageAttach(path, cliId);
+        if (attach) return attach;
+      }
+    }
+    // Absolute image path as text (Win/Mac) — else fall through to native
+    // file-list reader; do not paste bare filenames and skip CF_HDROP / Finder URLs.
+    const text = e.clipboardData?.getData("text");
+    if (text) {
+      const path = parseClipboardImagePath(text);
+      if (path) {
+        const attach = formatImageAttach(path, cliId);
+        if (attach) return attach;
+      }
+    }
+  }
+  // Always prefer native file-list / bitmap when browser data was incomplete.
+  return clipboardReadForPaste(cliId);
+}
 
 const isMac = navigator.userAgent.includes("Mac");
 const isWin = navigator.userAgent.includes("Windows");
@@ -50,6 +173,11 @@ export type CreateResult = {
   knownBefore?: string[];
 };
 
+export type ResumeProbeResult = {
+  canResume: boolean;
+  knownBefore: string[];
+};
+
 export type DocArtifact = { path: string; label: string; mtimeMs?: number };
 export type LinkArtifact = { url: string; label?: string };
 export type ArtifactsResult = { docs: DocArtifact[]; links: LinkArtifact[] };
@@ -61,6 +189,11 @@ export const tui = {
     invoke<CreateResult>("session_create", {
       cwd: opts.cwd,
       cliId: opts.cliId,
+    }),
+  probeResume: (opts: { cliId: string; cwd: string }) =>
+    invoke<ResumeProbeResult>("session_probe_resume", {
+      cliId: opts.cliId,
+      cwd: opts.cwd,
     }),
   respawnSession: (opts: {
     id: string;
@@ -198,6 +331,13 @@ export const tui = {
   },
   clipboardRead: () => readText(),
   clipboardWrite: (text: string) => writeText(String(text ?? "")),
+  clipboardReadForPaste,
+  pasteFromClipboardEvent,
+  saveImageFile,
+  formatImageAttach,
+  parseClipboardImagePath,
+  isImageFileName,
+  isImageMime,
   clipboardAction: (ev: KeyboardEvent, hasSelection: boolean) =>
     clipboardAction(ev, { hasSelection: !!hasSelection, isMac }),
   selectionDeleteAction: (ev: KeyboardEvent, hasSelection: boolean) =>

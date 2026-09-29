@@ -3185,6 +3185,8 @@ dependencies = [
 name = "sema"
 version = "0.1.0"
 dependencies = [
+ "arboard",
+ "base64 0.22.1",
  "dirs",
  "log",
  "md-5",
@@ -3192,6 +3194,7 @@ dependencies = [
  "objc2-app-kit",
  "objc2-foundation",
  "parking_lot",
+ "png 0.17.16",
  "portable-pty",
  "raw-window-handle",
  "rusqlite",

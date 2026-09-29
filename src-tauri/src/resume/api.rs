@@ -174,10 +174,7 @@ pub fn resolve_resume_selection(
         .map(str::trim)
         .unwrap_or("")
         .to_string();
-    if !bound.is_empty()
-        && !exclude.contains(&bound)
-        && session_id_exists(cli_id, cwd, &bound, home_dir)
-    {
+    if !bound.is_empty() && !exclude.contains(&bound) {
         let by_id = resume_args_for_id(cli_id, Some(&bound));
         if !by_id.is_empty() {
             return ResumeSelection {

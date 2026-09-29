@@ -5,6 +5,7 @@ mod cli_detect;
 mod commands;
 mod fs_text;
 mod git;
+mod image_temp;
 #[cfg(target_os = "macos")]
 mod mac_traffic_lights;
 mod openable_url;
@@ -83,6 +84,7 @@ pub fn run() {
             commands::window_focus,
             commands::badge_set,
             commands::session_create,
+            commands::session_probe_resume,
             commands::session_respawn,
             commands::session_discover_cli_session,
             commands::session_follow_cli_session,
@@ -92,6 +94,8 @@ pub fn run() {
             commands::git_branch,
             commands::read_text_file,
             commands::write_text_file,
+            commands::save_image_bytes,
+            commands::clipboard_save_image,
             commands::session_artifacts,
             commands::session_artifacts_seq,
             commands::open_external,
