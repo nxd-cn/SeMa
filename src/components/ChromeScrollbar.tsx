@@ -26,10 +26,12 @@ type Props = {
   overflowParentClass?: string;
 };
 
+const MIN_THUMB_FALLBACK = 28;
+
 /**
  * Custom scrollbar matching SeMa chrome colors.
  * Needed because macOS WKWebView ignores ::-webkit-scrollbar.
- * Shared by term-columns (x) and sidebar tabs (y).
+ * Shared by term-columns (x) and chrome-vscroll (y).
  */
 export default function ChromeScrollbar({
   axis,
@@ -46,10 +48,8 @@ export default function ChromeScrollbar({
     clientSize: 0,
   });
   const [trackSize, setTrackSize] = useState(0);
-  const drag = useRef<{ startPointer: number; startScroll: number } | null>(
-    null
-  );
   const [dragging, setDragging] = useState(false);
+  const dragCleanup = useRef<(() => void) | null>(null);
 
   const measure = useCallback(() => {
     const el = scrollRef.current;
@@ -83,6 +83,13 @@ export default function ChromeScrollbar({
     };
   }, [scrollRef, layoutKey, measure]);
 
+  useEffect(() => {
+    return () => {
+      dragCleanup.current?.();
+      dragCleanup.current = null;
+    };
+  }, []);
+
   const overflow = metrics.scrollSize > metrics.clientSize + 1;
 
   useLayoutEffect(() => {
@@ -97,41 +104,12 @@ export default function ChromeScrollbar({
   }, [overflow, overflowParentClass]);
 
   const thumb = scrollThumb1D(metrics, trackSize);
-
-  useEffect(() => {
-    if (!dragging) return;
-    const onMove = (e: PointerEvent) => {
-      const el = scrollRef.current;
-      const d = drag.current;
-      const track = trackRef.current;
-      if (!el || !d || !track) return;
-      const ts = axis === "x" ? track.clientWidth : track.clientHeight;
-      const m = metricsFromElement(el, axis);
-      const t = scrollThumb1D(m, ts);
-      if (!t.visible) return;
-      const maxScroll = m.scrollSize - m.clientSize;
-      const maxOffset = ts - t.size;
-      if (maxOffset <= 0 || maxScroll <= 0) return;
-      const pointer = axis === "x" ? e.clientX : e.clientY;
-      const delta = pointer - d.startPointer;
-      const startOffset = (d.startScroll / maxScroll) * maxOffset;
-      const nextOffset = Math.max(0, Math.min(maxOffset, startOffset + delta));
-      applyScrollPos(el, axis, (nextOffset / maxOffset) * maxScroll);
-    };
-    const onUp = () => {
-      drag.current = null;
-      setDragging(false);
-    };
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-    return () => {
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-    };
-  }, [dragging, scrollRef, axis]);
+  const showThumb = dragging || (overflow && thumb.visible);
 
   const onTrackPointerDown = (e: ReactPointerEvent) => {
     if ((e.target as HTMLElement).closest(`.${thumbClassName}`)) return;
+    e.preventDefault();
+    e.stopPropagation();
     const el = scrollRef.current;
     const track = trackRef.current;
     if (!el || !track) return;
@@ -151,30 +129,76 @@ export default function ChromeScrollbar({
   };
 
   const onThumbPointerDown = (e: ReactPointerEvent) => {
+    e.preventDefault();
     e.stopPropagation();
     const el = scrollRef.current;
-    if (!el) return;
-    drag.current = {
-      startPointer: axis === "x" ? e.clientX : e.clientY,
-      startScroll: axis === "x" ? el.scrollLeft : el.scrollTop,
-    };
+    const track = trackRef.current;
+    if (!el || !track) return;
+
+    // End any prior drag (StrictMode / double-down).
+    dragCleanup.current?.();
+
+    const startPointer = axis === "x" ? e.clientX : e.clientY;
+    const startScroll = axis === "x" ? el.scrollLeft : el.scrollTop;
     setDragging(true);
-    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+
+    // Register move/up synchronously — waiting for useEffect(dragging) drops
+    // the first moves and is flaky in WebView2 / WKWebView.
+    const onMove = (ev: PointerEvent) => {
+      const port = scrollRef.current;
+      const tr = trackRef.current;
+      if (!port || !tr) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      const ts = axis === "x" ? tr.clientWidth : tr.clientHeight;
+      const m = metricsFromElement(port, axis);
+      const t = scrollThumb1D(m, ts);
+      const thumbSize = t.visible ? t.size : Math.min(MIN_THUMB_FALLBACK, ts);
+      const maxScroll = m.scrollSize - m.clientSize;
+      const maxOffset = ts - thumbSize;
+      if (maxOffset <= 0 || maxScroll <= 0) return;
+      const pointer = axis === "x" ? ev.clientX : ev.clientY;
+      const delta = pointer - startPointer;
+      const startOffset = (startScroll / maxScroll) * maxOffset;
+      const nextOffset = Math.max(0, Math.min(maxOffset, startOffset + delta));
+      applyScrollPos(port, axis, (nextOffset / maxOffset) * maxScroll);
+    };
+
+    const onUp = () => {
+      dragCleanup.current?.();
+      dragCleanup.current = null;
+      setDragging(false);
+    };
+
+    document.addEventListener("pointermove", onMove, true);
+    document.addEventListener("pointerup", onUp, true);
+    document.addEventListener("pointercancel", onUp, true);
+    // Mouse fallback — some WebView builds drop pointer* after preventDefault.
+    document.addEventListener("mousemove", onMove as EventListener, true);
+    document.addEventListener("mouseup", onUp, true);
+
+    dragCleanup.current = () => {
+      document.removeEventListener("pointermove", onMove, true);
+      document.removeEventListener("pointerup", onUp, true);
+      document.removeEventListener("pointercancel", onUp, true);
+      document.removeEventListener("mousemove", onMove as EventListener, true);
+      document.removeEventListener("mouseup", onUp, true);
+    };
   };
 
   const thumbStyle =
     axis === "x"
-      ? { width: thumb.size, left: thumb.offset }
-      : { height: thumb.size, top: thumb.offset };
+      ? { width: thumb.size || MIN_THUMB_FALLBACK, left: thumb.offset }
+      : { height: thumb.size || MIN_THUMB_FALLBACK, top: thumb.offset };
 
   return (
     <div
       ref={trackRef}
-      className={`${trackClassName}${overflow ? " visible" : ""}`}
-      aria-hidden={!overflow}
-      onPointerDown={overflow ? onTrackPointerDown : undefined}
+      className={`${trackClassName}${overflow || dragging ? " visible" : ""}`}
+      aria-hidden={!overflow && !dragging}
+      onPointerDown={overflow || dragging ? onTrackPointerDown : undefined}
     >
-      {overflow && thumb.visible ? (
+      {showThumb ? (
         <div
           className={`${thumbClassName}${dragging ? " dragging" : ""}`}
           style={thumbStyle}

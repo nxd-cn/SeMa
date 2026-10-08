@@ -7,6 +7,7 @@ type Props = {
   onNewSession: () => void;
   onToggleSidebar: () => void;
   onOpenTool: (cliId: string) => void;
+  onOpenSettings?: () => void;
 };
 
 /** macOS overlay title bar: + / sidebar toggle / CLI tools (Windows unused). */
@@ -14,6 +15,7 @@ export default function MacTitleBar({
   onNewSession,
   onToggleSidebar,
   onOpenTool,
+  onOpenSettings,
 }: Props) {
   const tools = useAppStore((s) => s.tools);
   const sidebarCollapsed = useAppStore((s) => s.sidebarCollapsed);
@@ -59,6 +61,17 @@ export default function MacTitleBar({
             {tool.label}
           </button>
         ))}
+        {onOpenSettings ? (
+          <button
+            type="button"
+            className="mac-titlebar-btn"
+            title="设置"
+            aria-label="设置"
+            onClick={onOpenSettings}
+          >
+            ⚙
+          </button>
+        ) : null}
       </div>
     </header>
   );

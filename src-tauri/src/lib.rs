@@ -5,6 +5,7 @@ mod cli_detect;
 mod commands;
 mod fs_text;
 mod git;
+mod headless;
 mod image_temp;
 #[cfg(target_os = "macos")]
 mod mac_traffic_lights;
@@ -98,6 +99,16 @@ pub fn run() {
             commands::clipboard_save_image,
             commands::session_artifacts,
             commands::session_artifacts_seq,
+            commands::chat_send,
+            commands::chat_permission_reply,
+            commands::chat_cancel,
+            commands::chat_history,
+            commands::cli_models_list,
+            commands::cli_config_get,
+            commands::cli_config_set_provider,
+            commands::cli_config_open_dir,
+            commands::cli_auth_status,
+            commands::cli_auth_login,
             commands::open_external,
             commands::open_path,
             pane_webview::pane_webview_open,

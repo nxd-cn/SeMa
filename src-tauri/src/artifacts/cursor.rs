@@ -41,7 +41,7 @@ fn is_safe_session_id(id: &str) -> bool {
     !id.contains('/') && !id.contains('\\') && !id.contains("..")
 }
 
-fn find_cursor_store_db(cwd: &str, session_id: &str, home: Option<&Path>) -> Option<PathBuf> {
+pub(crate) fn find_cursor_store_db(cwd: &str, session_id: &str, home: Option<&Path>) -> Option<PathBuf> {
     let home = home.map(Path::to_path_buf).unwrap_or_else(home_dir);
     let hashes = cursor_workspace_hashes(cwd);
     if hashes.is_empty() {
@@ -92,7 +92,7 @@ fn sqlite_readonly_uri(path: &Path) -> String {
     }
 }
 
-fn open_store_readonly(path: &Path) -> Option<Connection> {
+pub(crate) fn open_store_readonly(path: &Path) -> Option<Connection> {
     let uri_flags = OpenFlags::SQLITE_OPEN_READ_ONLY
         | OpenFlags::SQLITE_OPEN_URI
         | OpenFlags::SQLITE_OPEN_NO_MUTEX;

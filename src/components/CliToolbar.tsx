@@ -5,9 +5,14 @@ import { useAppStore } from "../store/appStore";
 type Props = {
   onToggleSidebar: () => void;
   onOpenTool: (cliId: string) => void;
+  onOpenSettings?: () => void;
 };
 
-export default function CliToolbar({ onToggleSidebar, onOpenTool }: Props) {
+export default function CliToolbar({
+  onToggleSidebar,
+  onOpenTool,
+  onOpenSettings,
+}: Props) {
   const tools = useAppStore((s) => s.tools);
   const sidebarCollapsed = useAppStore((s) => s.sidebarCollapsed);
   const hasPanes = useAppStore((s) => Object.keys(s.panes).length > 0);
@@ -38,6 +43,16 @@ export default function CliToolbar({ onToggleSidebar, onOpenTool }: Props) {
             {tool.label}
           </button>
         ))}
+        {onOpenSettings ? (
+          <button
+            type="button"
+            title="设置"
+            aria-label="设置"
+            onClick={onOpenSettings}
+          >
+            ⚙
+          </button>
+        ) : null}
       </div>
     </div>
   );

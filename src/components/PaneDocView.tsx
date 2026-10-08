@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useRef } from "react";
-import { marked } from "marked";
 import { tui } from "../api/tui";
 import { docSaveKeyAction, docSaveShortcutLabel } from "../lib/docSaveKeys";
 import {
   clampDocFontSize,
   docFontSizeFromWheel,
 } from "../lib/docFontZoom";
+import { renderMarkdown } from "../lib/markdown";
 import { isMarkdownPath } from "../lib/panePreview";
 import { useAppStore } from "../store/appStore";
 import ChromeVScrollbar from "./ChromeVScrollbar";
+
+export { renderMarkdown };
 
 export const DISCARD_UNSAVED_MESSAGE = "放弃未保存更改？";
 
@@ -18,14 +20,6 @@ export function confirmDiscardUnsaved(
 ): boolean {
   if (!dirty) return true;
   return confirmFn(DISCARD_UNSAVED_MESSAGE);
-}
-
-export function renderMarkdown(text: string): string {
-  try {
-    return marked.parse(text, { async: false });
-  } catch {
-    return "";
-  }
 }
 
 type DocMode = "preview" | "edit";

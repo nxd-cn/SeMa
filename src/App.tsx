@@ -5,12 +5,13 @@ import {
   useRef,
   useState,
 } from "react";
-import { tui, type ToolInfo } from "./api/tui";
+import { isChatCli, tui, type ToolInfo } from "./api/tui";
 import ActivityToast from "./components/ActivityToast";
 import CliToolbar from "./components/CliToolbar";
 import ContextMenu, { type ContextMenuState } from "./components/ContextMenu";
 import MacTitleBar from "./components/MacTitleBar";
 import Pane from "./components/Pane";
+import SettingsModal from "./components/SettingsModal";
 import Sidebar from "./components/Sidebar";
 import TermColumnsScrollbar from "./components/TermColumnsScrollbar";
 import type { TermHandle } from "./components/TerminalHost";
@@ -47,6 +48,7 @@ const MIN_FLEX = 0.15;
 
 /** Survive React StrictMode remount so restore does not double-spawn. */
 let bootStarted = false;
+const BOOT_SESSION_KEY = "sema-layout-boot-v1";
 
 type CliModalState = { cwd: string } | null;
 type ConfirmState = {
@@ -73,6 +75,80 @@ function cwdKey(cwd: string): string {
 
 function sameCwd(a: string, b: string): boolean {
   return cwdKey(a) === cwdKey(b);
+}
+
+type LayoutPaneSpec = {
+  cwd: string;
+  cliId: string;
+  flex?: number;
+  cliSessionId?: string;
+};
+type LayoutGroupSpec = {
+  panes: LayoutPaneSpec[];
+  focus?: number;
+  customTitle?: string | null;
+};
+
+/** Fingerprint a group for exact-duplicate removal. */
+function layoutGroupKey(g: LayoutGroupSpec): string {
+  const title = (g.customTitle || "").trim();
+  const panes = (g.panes || [])
+    .map(
+      (p) =>
+        `${p.cliId}\0${cwdKey(p.cwd)}\0${String(p.cliSessionId || "").trim()}`
+    )
+    .join("\n");
+  return `${title}\n${panes}`;
+}
+
+/**
+ * HMR / double-boot has written the full tab list twice into prefs. If the
+ * second half mirrors the first half by cwd+cliId, keep only the first half.
+ * Also drop exact key duplicates.
+ */
+function dedupeLayoutGroups(groups: LayoutGroupSpec[]): LayoutGroupSpec[] {
+  if (!groups.length) return groups;
+  const exact: LayoutGroupSpec[] = [];
+  const seen = new Set<string>();
+  for (const g of groups) {
+    if (!g?.panes?.length) continue;
+    const key = layoutGroupKey(g);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    exact.push(g);
+  }
+
+  const n = exact.length;
+  if (n >= 2 && n % 2 === 0) {
+    const half = n / 2;
+    let mirrored = true;
+    for (let i = 0; i < half; i++) {
+      const a = exact[i]?.panes || [];
+      const b = exact[i + half]?.panes || [];
+      if (a.length !== b.length) {
+        mirrored = false;
+        break;
+      }
+      for (let j = 0; j < a.length; j++) {
+        if (
+          a[j].cliId !== b[j].cliId ||
+          cwdKey(a[j].cwd) !== cwdKey(b[j].cwd)
+        ) {
+          mirrored = false;
+          break;
+        }
+      }
+      if (!mirrored) break;
+      const ta = (exact[i].customTitle || "").trim();
+      const tb = (exact[i + half].customTitle || "").trim();
+      if (ta !== tb) {
+        mirrored = false;
+        break;
+      }
+    }
+    if (mirrored) return exact.slice(0, half);
+  }
+  return exact;
 }
 
 export default function App() {
@@ -120,7 +196,10 @@ export default function App() {
   const [cliModal, setCliModal] = useState<CliModalState>(null);
   const [confirm, setConfirm] = useState<ConfirmState>(null);
   const [ctxMenu, setCtxMenu] = useState<ContextMenuState>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const updater = useAppUpdater();
+  const approvalMode = useAppStore((s) => s.approvalMode);
+  const cliModels = useAppStore((s) => s.cliModels);
 
   const showConfirm = useCallback((message: string) => {
     return new Promise<boolean>((resolve) => {
@@ -323,6 +402,9 @@ export default function App() {
       if (!shouldRefreshBusyTimer(!!group.busy, data, qualifying)) return;
       clearGroupArmHold(group.id);
       s.setBusy(group.id, true);
+      // Chat: keep green pulse until settleChatActivity — tool gaps often exceed
+      // IDLE_MS and would falsely idle (and miss unread when user already left).
+      if (isChatCli(p.cliId)) return;
       const prev = idleTimers.current.get(group.id);
       if (prev) clearTimeout(prev);
       idleTimers.current.set(
@@ -331,6 +413,29 @@ export default function App() {
       );
     },
     [clearGroupArmHold, markGroupIdle]
+  );
+
+  /** Chat send finished: start idle so unread + toast can fire. */
+  const settleChatActivity = useCallback(
+    (sessionId: string) => {
+      const s = useAppStore.getState();
+      const p = s.panes[sessionId];
+      const group = s.groups.find((g) => g.paneIds.includes(sessionId));
+      if (!group || !p) return;
+      if (!p.activityArmed && !group.busy) return;
+      // Ensure busy so markGroupIdle will run (and toast if not looking).
+      if (!group.busy) s.setBusy(group.id, true);
+      clearGroupArmHold(group.id);
+      const prev = idleTimers.current.get(group.id);
+      if (prev) clearTimeout(prev);
+      // Headless turn is done — short settle, then idle/unread (not PTY IDLE_MS).
+      const settleMs = userLookingAtGroup(group.id) ? IDLE_MS : 300;
+      idleTimers.current.set(
+        group.id,
+        setTimeout(() => markGroupIdle(group.id), settleMs)
+      );
+    },
+    [clearGroupArmHold, markGroupIdle, userLookingAtGroup]
   );
 
   const bindCliSession = useCallback(
@@ -459,7 +564,12 @@ export default function App() {
         // before the next PTY chunk arrives.
         clearGroupIdleTimer(group.id);
         clearGroupArmHold(group.id);
-        if (group.busy) {
+        if (isChatCli(v.cliId)) {
+          // Chat has no TUI echo risk — pulse for the whole headless turn
+          // (including pre-first-token wait). Idle starts on settle / chunks.
+          s.setBusy(group.id, true);
+        } else if (group.busy) {
+          // PTY: keep busy + refresh idle until the next qualifying chunk.
           idleTimers.current.set(
             group.id,
             setTimeout(() => markGroupIdle(group.id), IDLE_MS)
@@ -468,14 +578,19 @@ export default function App() {
       }
       const abandonResumeOffer = !!v.resumeOfferPending;
       const armActivity = ACTIVITY_CLIS.has(v.cliId);
+      // Chat + ↻ already armed: keep bound session (do not treat Enter as "new chat").
+      const keepChatResume =
+        isChatCli(v.cliId) &&
+        (!!v.chatResumeArmed || (!!v.cliSessionId && abandonResumeOffer));
       s.updatePane(sessionId, {
         ...(armActivity ? { activityArmed: true } : {}),
         continueDismissed: true,
         resumeOfferPending: false,
+        ...(keepChatResume ? { chatResumeArmed: true } : {}),
       });
       // Re-read: /clear handler may have just nulled the binding.
       const bound = useAppStore.getState().panes[sessionId]?.cliSessionId;
-      if (abandonResumeOffer) {
+      if (abandonResumeOffer && !keepChatResume) {
         if (bound) {
           s.updatePane(sessionId, { cliSessionId: null });
           void persistLayout();
@@ -521,6 +636,27 @@ export default function App() {
       const s = useAppStore.getState();
       const g = s.groups.find((x) => x.id === groupId);
       if (!g || !g.paneIds.length) return;
+      // Leaving a Chat group that already finished its idle while we were
+      // looking: surface unread now (markGroupIdle skipped toast while focused).
+      const prevId = s.activeGroupId;
+      if (prevId && prevId !== groupId) {
+        const prev = s.groups.find((x) => x.id === prevId);
+        const prevPane = prev?.paneIds
+          .map((id) => s.panes[id])
+          .find((p) => p && isChatCli(p.cliId));
+        if (
+          prev &&
+          prevPane &&
+          !prev.busy &&
+          !prev.unread &&
+          prevPane.activityArmed &&
+          armHoldTimers.current.has(prevId)
+        ) {
+          s.setUnread(prevId, true);
+          s.addToast({ groupId: prevId, label: groupLabel(prev, s.panes) });
+          syncBadge();
+        }
+      }
       // Unparking also refits and can redraw a finished TUI — settle target.
       // Do not disarm the previous group on leave: it may still be actively
       // executing with delayed tokens, and must retain pulse re-arm behavior.
@@ -531,7 +667,7 @@ export default function App() {
           : g.paneIds[0];
       setActivePane(focus);
     },
-    [disarmPostTurnIdle, setActivePane]
+    [disarmPostTurnIdle, setActivePane, syncBadge]
   );
 
   const renameGroup = useCallback(
@@ -840,7 +976,42 @@ export default function App() {
         resumeOfferPending: false,
         artifactsIncludeHistory: true,
         artifactsSinceSeq: undefined,
+        // Arm immediately so a fast follow-up send still resumes (Chat has no PTY).
+        ...(isChatCli(cur.cliId) ? { chatResumeArmed: true } : {}),
       });
+
+      // Chat / headless: bind session for next message — no PTY to respawn.
+      if (isChatCli(cur.cliId)) {
+        try {
+          const result = await tui.respawnSession({
+            id: sessionId,
+            cwd: cur.cwd,
+            cliId: cur.cliId,
+            cliSessionId: cur.cliSessionId || undefined,
+            excludeIds: usedCliSessionIds(cur.cwd, sessionId),
+          });
+          if (result?.fallback) {
+            // No resolvable id / continue flags — still try last-in-cwd on send.
+            s.updatePane(sessionId, {
+              cliSessionId: null,
+              chatResumeArmed: true,
+            });
+          } else if (result?.cliSessionId) {
+            s.updatePane(sessionId, {
+              cliSessionId: result.cliSessionId,
+              chatResumeArmed: true,
+            });
+          } else {
+            s.updatePane(sessionId, { chatResumeArmed: true });
+          }
+          await persistLayout();
+        } catch (err) {
+          s.updatePane(sessionId, { chatResumeArmed: true });
+          alert(err instanceof Error ? err.message : String(err));
+        }
+        return;
+      }
+
       const handle = terms.current.get(sessionId);
       // Fit first so spawn uses the real pane size (avoids TUI drawing at 120×40).
       handle?.refit();
@@ -887,7 +1058,7 @@ export default function App() {
         }
       }
     },
-    [bindCliSession, followCliSession, persistLayout, usedCliSessionIds]
+    [bindCliSession, persistLayout, usedCliSessionIds]
   );
 
   const startNewSession = useCallback(async () => {
@@ -1004,9 +1175,84 @@ export default function App() {
     [ctxMenu, noticeUserComposing, noticeUserStartedChat]
   );
 
+  // Collapse an already-doubled in-memory tab list (HMR double-restore) once.
+  useEffect(() => {
+    const s = useAppStore.getState();
+    const gs = s.groups;
+    const n = gs.length;
+    if (n < 2 || n % 2 !== 0) return;
+    const half = n / 2;
+    let mirrored = true;
+    for (let i = 0; i < half; i++) {
+      const a = gs[i];
+      const b = gs[i + half];
+      const ap = a.paneIds.map((id) => s.panes[id]).filter(Boolean);
+      const bp = b.paneIds.map((id) => s.panes[id]).filter(Boolean);
+      if (ap.length !== bp.length) {
+        mirrored = false;
+        break;
+      }
+      for (let j = 0; j < ap.length; j++) {
+        if (
+          ap[j]!.cliId !== bp[j]!.cliId ||
+          cwdKey(ap[j]!.cwd) !== cwdKey(bp[j]!.cwd)
+        ) {
+          mirrored = false;
+          break;
+        }
+      }
+      if (!mirrored) break;
+      if ((a.customTitle || "").trim() !== (b.customTitle || "").trim()) {
+        mirrored = false;
+        break;
+      }
+    }
+    if (!mirrored) return;
+    const keep = gs.slice(0, half);
+    const drop = gs.slice(half);
+    const nextPanes = { ...s.panes };
+    for (const g of drop) {
+      for (const pid of g.paneIds) {
+        delete nextPanes[pid];
+        void tui.killSession(pid).catch(() => {
+          /* best-effort */
+        });
+      }
+    }
+    const activeStill =
+      keep.some((g) => g.id === s.activeGroupId) ? s.activeGroupId : keep[0]?.id ?? null;
+    const focus =
+      (activeStill &&
+        keep.find((g) => g.id === activeStill)?.focusId) ||
+      keep[0]?.paneIds[0] ||
+      null;
+    useAppStore.setState({
+      groups: keep,
+      panes: nextPanes,
+      activeGroupId: activeStill,
+      focusedPaneId: focus,
+    });
+    void persistLayout();
+    syncBadge();
+  }, [persistLayout, syncBadge]);
+
   // Boot: prefs + CLI list + restore layout
   useEffect(() => {
     if (bootStarted) return;
+    // sessionStorage survives Vite HMR of this module (module `let` does not) —
+    // without it, restore appends a second copy of every tab.
+    try {
+      if (
+        sessionStorage.getItem(BOOT_SESSION_KEY) &&
+        useAppStore.getState().groups.length > 0
+      ) {
+        bootStarted = true;
+        return;
+      }
+      sessionStorage.setItem(BOOT_SESSION_KEY, "1");
+    } catch {
+      /* private mode / non-DOM */
+    }
     bootStarted = true;
     void (async () => {
       try {
@@ -1021,27 +1267,23 @@ export default function App() {
         if (typeof prefs.termFontSize === "number") {
           st.setTermFontSize(clampTermFontSize(prefs.termFontSize));
         }
+        if (prefs.approvalMode) {
+          st.setApprovalMode(
+            prefs.approvalMode === "ask" ? "ask" : "auto"
+          );
+        }
+        if (prefs.cliModels && typeof prefs.cliModels === "object") {
+          st.setCliModels(prefs.cliModels);
+        }
 
         const { tools: listed } = await tui.listCli();
         st.setTools(listed);
         const toolIds = new Set(listed.map((t) => t.id));
 
-        type PaneSpec = {
-          cwd: string;
-          cliId: string;
-          flex?: number;
-          cliSessionId?: string;
-        };
-        type GroupSpec = {
-          panes: PaneSpec[];
-          focus?: number;
-          customTitle?: string | null;
-        };
-
-        let groupsSpec: GroupSpec[] | null = null;
+        let groupsSpec: LayoutGroupSpec[] | null = null;
         let activeGroupIndex = 0;
         const layout = prefs.layout as {
-          groups?: GroupSpec[];
+          groups?: LayoutGroupSpec[];
           activeGroupIndex?: number;
         } | null;
         const split = prefs.split as {
@@ -1051,11 +1293,17 @@ export default function App() {
         } | null;
 
         if (layout?.groups?.length) {
-          groupsSpec = layout.groups;
+          groupsSpec = dedupeLayoutGroups(layout.groups);
           activeGroupIndex =
             typeof layout.activeGroupIndex === "number"
               ? layout.activeGroupIndex
               : 0;
+          if (groupsSpec.length < layout.groups.length) {
+            activeGroupIndex = Math.min(
+              activeGroupIndex,
+              Math.max(0, groupsSpec.length - 1)
+            );
+          }
         } else if (split?.cwd && Array.isArray(split.panes) && split.panes.length) {
           groupsSpec = [
             {
@@ -1072,6 +1320,11 @@ export default function App() {
         if (!groupsSpec?.length) {
           syncBadge();
           return;
+        }
+
+        // Drop any leftover panes from a prior HMR mount before re-hydrating.
+        if (useAppStore.getState().groups.length) {
+          useAppStore.getState().resetLayout();
         }
 
         let focusSessionId: string | null = null;
@@ -1153,34 +1406,51 @@ export default function App() {
     })();
   }, [openSession, persistLayout, setActivePane, syncBadge]);
 
-  // Window focus / visibility → clear unread if looking
+  // Window focus / visibility → clear unread if looking.
+  // Prefer Tauri focus events — WebView2 often skips window blur/focus on alt-tab.
   useEffect(() => {
-    const clearIfLooking = () => {
-      useAppStore.getState().setWindowFocused(true);
-      const s = useAppStore.getState();
-      if (!s.activeGroupId || !userLookingAtGroup(s.activeGroupId)) return;
-      const g = s.groups.find((x) => x.id === s.activeGroupId);
+    const markFocused = () => {
+      const st = useAppStore.getState();
+      st.setWindowFocused(true);
+      const gid = st.activeGroupId;
+      if (!gid) return;
+      const g = st.groups.find((x) => x.id === gid);
       if (!g?.unread) return;
-      s.setUnread(g.id, false);
-      dismissToast(g.id);
+      st.setUnread(gid, false);
+      dismissToast(gid);
       syncBadge();
     };
-    const onBlur = () => {
+    const markBlurred = () => {
       useAppStore.getState().setWindowFocused(false);
     };
     const onVis = () => {
-      if (document.visibilityState === "visible") clearIfLooking();
-      else useAppStore.getState().setWindowFocused(false);
+      if (document.visibilityState === "visible") markFocused();
+      else markBlurred();
     };
-    window.addEventListener("focus", clearIfLooking);
-    window.addEventListener("blur", onBlur);
+    window.addEventListener("focus", markFocused);
+    window.addEventListener("blur", markBlurred);
     document.addEventListener("visibilitychange", onVis);
+
+    let unlistenFocus: (() => void) | undefined;
+    void (async () => {
+      try {
+        const { getCurrentWindow } = await import("@tauri-apps/api/window");
+        unlistenFocus = await getCurrentWindow().onFocusChanged((ev) => {
+          if (ev.payload) markFocused();
+          else markBlurred();
+        });
+      } catch {
+        /* non-Tauri / tests */
+      }
+    })();
+
     return () => {
-      window.removeEventListener("focus", clearIfLooking);
-      window.removeEventListener("blur", onBlur);
+      window.removeEventListener("focus", markFocused);
+      window.removeEventListener("blur", markBlurred);
       document.removeEventListener("visibilitychange", onVis);
+      unlistenFocus?.();
     };
-  }, [dismissToast, syncBadge, userLookingAtGroup]);
+  }, [dismissToast, syncBadge]);
 
   // Column resize drag
   useEffect(() => {
@@ -1267,6 +1537,7 @@ export default function App() {
           onNewSession={startNewSession}
           onToggleSidebar={() => void toggleSidebar()}
           onOpenTool={(cliId) => void openToolInFocused(cliId)}
+          onOpenSettings={() => setSettingsOpen(true)}
         />
       ) : null}
       <div id="app-body">
@@ -1294,6 +1565,7 @@ export default function App() {
             <CliToolbar
               onToggleSidebar={() => void toggleSidebar()}
               onOpenTool={(cliId) => void openToolInFocused(cliId)}
+              onOpenSettings={() => setSettingsOpen(true)}
             />
           )}
           <div id="term-stage">
@@ -1321,7 +1593,19 @@ export default function App() {
                         onSubmitChat={() => noticeUserStartedChat(pane.id)}
                         onUserComposing={() => noticeUserComposing(pane.id)}
                         onCliSessionCleared={() => onCliSessionCleared(pane.id)}
+                        onCliSessionId={(cliSessionId) => {
+                          useAppStore
+                            .getState()
+                            .updatePane(pane.id, { cliSessionId });
+                          void persistLayout();
+                        }}
+                        onChatResumeConsumed={() => {
+                          useAppStore
+                            .getState()
+                            .updatePane(pane.id, { chatResumeArmed: false });
+                        }}
                         onActivityData={(data) => noteActivity(pane.id, data)}
+                        onActivitySettle={() => settleChatActivity(pane.id)}
                         onRegisterArtifactsIdle={registerArtifactsIdle}
                         onContextMenu={(x, y, hasSel) =>
                           setCtxMenu({
@@ -1461,6 +1745,21 @@ export default function App() {
         </div>
       </div>
 
+      <SettingsModal
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        tools={tools}
+        approvalMode={approvalMode}
+        cliModels={cliModels}
+        onSaved={(patch) => {
+          if (patch.approvalMode) {
+            useAppStore.getState().setApprovalMode(patch.approvalMode);
+          }
+          if (patch.cliModels) {
+            useAppStore.getState().setCliModels(patch.cliModels);
+          }
+        }}
+      />
     </div>
   );
 }

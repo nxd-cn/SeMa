@@ -163,6 +163,39 @@ export type Prefs = {
   homeDir: string;
   docFontSize?: number;
   termFontSize?: number;
+  /** auto | ask */
+  approvalMode?: string;
+  cliModels?: Record<string, string>;
+};
+
+export type ModelInfo = { id: string; label: string };
+export type ModelsResult = {
+  cliId: string;
+  models: ModelInfo[];
+  detail: string;
+};
+export type ProviderConfigView = {
+  id: string;
+  baseUrl: string;
+  hasApiKey: boolean;
+  apiKeyHint: string;
+  models: string[];
+};
+export type CliConfigView = {
+  cliId: string;
+  kind: string;
+  configPath?: string | null;
+  providers: ProviderConfigView[];
+  detail: string;
+  supportsKeyForm: boolean;
+  supportsLogin: boolean;
+};
+export type ChatPermissionPayload = {
+  requestId: string;
+  permissionId: string;
+  toolName: string;
+  detail: string;
+  cliId: string;
 };
 
 export type CreateResult = {
@@ -181,6 +214,54 @@ export type ResumeProbeResult = {
 export type DocArtifact = { path: string; label: string; mtimeMs?: number };
 export type LinkArtifact = { url: string; label?: string };
 export type ArtifactsResult = { docs: DocArtifact[]; links: LinkArtifact[] };
+
+export type ChatSendResult = {
+  requestId: string;
+  ok: boolean;
+  text: string;
+  stderr: string;
+  exitCode: number;
+  needsAuth: boolean;
+  timedOut: boolean;
+  cancelled: boolean;
+};
+
+export type ChatHistoryMessage = {
+  role: "user" | "assistant" | string;
+  text: string;
+};
+
+export type ChatHistoryResult = {
+  sessionId?: string | null;
+  messages: ChatHistoryMessage[];
+};
+
+export type ChatChunkPayload = {
+  requestId: string;
+  delta: string;
+};
+
+export type AuthStatus = {
+  cliId: string;
+  kind: string;
+  loggedIn: boolean | null;
+  detail: string;
+  loginSupported: boolean;
+};
+
+export const CHAT_CLI_IDS = new Set([
+  "claude",
+  "opencode",
+  "kimi",
+  "cursor",
+  "codex",
+  "gemini",
+  "pi",
+]);
+
+export function isChatCli(cliId: string): boolean {
+  return CHAT_CLI_IDS.has(cliId);
+}
 
 export const tui = {
   isMac,
@@ -253,6 +334,78 @@ export const tui = {
     invoke<void>("session_write", { id, data }),
   resize: (id: string, cols: number, rows: number) =>
     invoke<void>("session_resize", { id, cols, rows }),
+  chatSend: (opts: {
+    requestId: string;
+    cliId: string;
+    cwd: string;
+    prompt: string;
+    sessionId?: string | null;
+    continueLast?: boolean;
+    model?: string | null;
+    approvalMode?: string | null;
+  }) =>
+    invoke<ChatSendResult>("chat_send", {
+      requestId: opts.requestId,
+      cliId: opts.cliId,
+      cwd: opts.cwd,
+      prompt: opts.prompt,
+      sessionId: opts.sessionId ?? null,
+      continueLast: opts.continueLast ?? false,
+      model: opts.model ?? null,
+      approvalMode: opts.approvalMode ?? null,
+    }),
+  chatPermissionReply: (opts: {
+    requestId: string;
+    permissionId: string;
+    allow: boolean;
+  }) =>
+    invoke<void>("chat_permission_reply", {
+      requestId: opts.requestId,
+      permissionId: opts.permissionId,
+      allow: opts.allow,
+    }),
+  chatCancel: (requestId: string) =>
+    invoke<void>("chat_cancel", { requestId }),
+  /** Prior turns from on-disk CLI session (after ↻). */
+  chatHistory: (opts: {
+    cliId: string;
+    cwd: string;
+    sessionId?: string | null;
+  }) =>
+    invoke<ChatHistoryResult>("chat_history", {
+      cliId: opts.cliId,
+      cwd: opts.cwd,
+      sessionId: opts.sessionId ?? null,
+    }),
+  /** Await before chatSend so early chunks are not missed. */
+  onChatChunk: (cb: (payload: ChatChunkPayload) => void) =>
+    listen<ChatChunkPayload>("chat:chunk", (e) => cb(e.payload)),
+  onChatPermission: (cb: (payload: ChatPermissionPayload) => void) =>
+    listen<ChatPermissionPayload>("chat:permission", (e) => cb(e.payload)),
+  cliModelsList: (cliId: string) =>
+    invoke<ModelsResult>("cli_models_list", { cliId }),
+  cliConfigGet: (cliId: string) =>
+    invoke<CliConfigView>("cli_config_get", { cliId }),
+  cliConfigSetProvider: (opts: {
+    cliId: string;
+    providerId: string;
+    apiKey?: string | null;
+    baseUrl?: string | null;
+    modelIds?: string[] | null;
+  }) =>
+    invoke<CliConfigView>("cli_config_set_provider", {
+      cliId: opts.cliId,
+      providerId: opts.providerId,
+      apiKey: opts.apiKey ?? null,
+      baseUrl: opts.baseUrl ?? null,
+      modelIds: opts.modelIds ?? null,
+    }),
+  cliConfigOpenDir: (cliId: string) =>
+    invoke<string>("cli_config_open_dir", { cliId }),
+  cliAuthStatus: (cliId: string) =>
+    invoke<AuthStatus>("cli_auth_status", { cliId }),
+  cliAuthLogin: (cliId: string, cwd?: string) =>
+    invoke<void>("cli_auth_login", { cliId, cwd: cwd ?? null }),
   listCli: () => invoke<{ tools: ToolInfo[] }>("cli_list"),
   pickFolder: () =>
     invoke<{ canceled: boolean; path?: string }>("dialog_pick_folder"),

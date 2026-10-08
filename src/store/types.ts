@@ -12,6 +12,10 @@ export type PaneState = {
   artifactsIncludeHistory?: boolean;
   continueDismissed?: boolean;
   resumeOfferPending?: boolean;
+  /** Chat mode: next send should continue / resume session. */
+  chatResumeArmed?: boolean;
+  /** Per-pane model override (falls back to prefs.cliModels[cliId]). */
+  chatModel?: string | null;
   activityArmed?: boolean;
   busy?: boolean;
   knownBefore?: string[];

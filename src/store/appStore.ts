@@ -12,6 +12,8 @@ type AppStore = {
   sidebarCollapsed: boolean;
   docFontSize: number;
   termFontSize: number;
+  approvalMode: string;
+  cliModels: Record<string, string>;
   groups: GroupState[];
   panes: Record<string, PaneState>;
   activeGroupId: string | null;
@@ -25,6 +27,8 @@ type AppStore = {
   setSidebarCollapsed: (collapsed: boolean) => void;
   setDocFontSize: (size: number) => void;
   setTermFontSize: (size: number) => void;
+  setApprovalMode: (mode: string) => void;
+  setCliModels: (models: Record<string, string>) => void;
   setWindowFocused: (focused: boolean) => void;
 
   upsertPane: (pane: PaneState) => void;
@@ -57,6 +61,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
   sidebarCollapsed: false,
   docFontSize: DEFAULT_DOC_FONT_SIZE,
   termFontSize: DEFAULT_TERM_FONT_SIZE,
+  approvalMode: "auto",
+  cliModels: {},
   groups: [],
   panes: {},
   activeGroupId: null,
@@ -70,6 +76,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
   setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
   setDocFontSize: (docFontSize) => set({ docFontSize }),
   setTermFontSize: (termFontSize) => set({ termFontSize }),
+  setApprovalMode: (approvalMode) => set({ approvalMode }),
+  setCliModels: (cliModels) => set({ cliModels }),
   setWindowFocused: (windowFocused) => set({ windowFocused }),
 
   upsertPane: (pane) =>

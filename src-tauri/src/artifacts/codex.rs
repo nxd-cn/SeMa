@@ -30,7 +30,7 @@ pub fn artifacts_for_codex(
     collect_from_texts(&texts, cwd)
 }
 
-fn find_codex_jsonl(session_id: &str, home: Option<&Path>) -> Option<PathBuf> {
+pub(crate) fn find_codex_jsonl(session_id: &str, home: Option<&Path>) -> Option<PathBuf> {
     let home = home.map(Path::to_path_buf).unwrap_or_else(home_dir);
     let root = home.join(".codex").join("sessions");
     walk_codex(&root, 0, session_id)

@@ -56,7 +56,7 @@ pub fn artifacts_for_claude(
     collect_from_texts(&texts, cwd)
 }
 
-fn find_claude_jsonl(cwd: &str, session_id: &str, home: Option<&Path>) -> Option<PathBuf> {
+pub(crate) fn find_claude_jsonl(cwd: &str, session_id: &str, home: Option<&Path>) -> Option<PathBuf> {
     let home = home.map(Path::to_path_buf).unwrap_or_else(home_dir);
     let ids = claude_project_ids(cwd);
     if ids.is_empty() {

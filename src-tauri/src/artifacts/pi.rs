@@ -57,7 +57,7 @@ fn pi_session_folders(cwd: &str, home: &Path) -> Vec<PathBuf> {
     out
 }
 
-fn find_pi_jsonl(cwd: &str, session_id: &str, home: Option<&Path>) -> Option<PathBuf> {
+pub(crate) fn find_pi_jsonl(cwd: &str, session_id: &str, home: Option<&Path>) -> Option<PathBuf> {
     let home = home.map(Path::to_path_buf).unwrap_or_else(home_dir);
     for dir in pi_session_folders(cwd, &home) {
         if let Some(p) = scan_pi_dir(&dir, session_id) {

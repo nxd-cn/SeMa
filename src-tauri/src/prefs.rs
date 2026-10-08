@@ -27,6 +27,16 @@ pub struct Prefs {
     pub doc_font_size: u32,
     #[serde(default = "default_term_font_size")]
     pub term_font_size: u32,
+    /// `auto` | `ask` — tool approval for headless Chat.
+    #[serde(default = "default_approval_mode")]
+    pub approval_mode: String,
+    /// Last selected model id per cliId.
+    #[serde(default)]
+    pub cli_models: HashMap<String, String>,
+}
+
+fn default_approval_mode() -> String {
+    "auto".into()
 }
 
 fn default_sidebar_width() -> u32 {
@@ -52,6 +62,8 @@ impl Default for Prefs {
             layout: None,
             doc_font_size: 13,
             term_font_size: 11,
+            approval_mode: default_approval_mode(),
+            cli_models: HashMap::new(),
         }
     }
 }
@@ -175,6 +187,28 @@ pub fn merge_prefs(mut prefs: Prefs, partial: &Value) -> Prefs {
     if let Some(v) = partial.get("termFontSize") {
         if let Some(n) = v.as_u64() {
             prefs.term_font_size = n.clamp(8, 24) as u32;
+        }
+    }
+    if let Some(v) = partial.get("approvalMode").and_then(|x| x.as_str()) {
+        let t = v.trim().to_ascii_lowercase();
+        prefs.approval_mode = if t == "ask" || t == "manual" {
+            "ask".into()
+        } else {
+            "auto".into()
+        };
+    }
+    if let Some(models) = partial.get("cliModels").and_then(|v| v.as_object()) {
+        for (k, v) in models {
+            if let Some(s) = v.as_str() {
+                let s = s.trim();
+                if s.is_empty() {
+                    prefs.cli_models.remove(k);
+                } else {
+                    prefs.cli_models.insert(k.clone(), s.to_string());
+                }
+            } else if v.is_null() {
+                prefs.cli_models.remove(k);
+            }
         }
     }
     prefs

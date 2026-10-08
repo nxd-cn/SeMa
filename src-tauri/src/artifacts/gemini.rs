@@ -34,7 +34,7 @@ pub fn artifacts_for_gemini(
     collect_from_texts(&texts, cwd)
 }
 
-fn find_gemini_file(cwd: &str, session_id: &str, home: Option<&Path>) -> Option<PathBuf> {
+pub(crate) fn find_gemini_file(cwd: &str, session_id: &str, home: Option<&Path>) -> Option<PathBuf> {
     let home = home.map(Path::to_path_buf).unwrap_or_else(home_dir);
     let tmp = home.join(".gemini").join("tmp");
     let hashes = gemini_project_hashes(cwd);

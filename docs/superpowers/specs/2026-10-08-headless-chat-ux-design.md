@@ -1,8 +1,11 @@
 # SeMa Headless Chat UX — 设计方案
 
-> 状态：方案讨论稿（**尚未实现**）  
+> 状态：**阶段 1～4 已落地** — Chat + 流式 + 审批 UI + 模型/Key 设置；Terminal 仍为 PTY  
 > 日期：2026-10-08  
-> 范围：产品形态与架构取舍；不绑定各 CLI 具体 argv（实现前按工具实测补齐接入表）
+> 范围：产品形态与架构；argv / 接入以 `src-tauri/src/headless/` 与下表为准  
+>
+> **已实现**：headless Chat、流式 `chat:chunk`、审批模式 auto/ask + `chat:permission`、设置页（鉴权/模型/Key 配置代理）、§5.5 接入表实测稿。  
+> **后续可选**：各 CLI ask 模式协议差异打磨、流式 JSON 解析更准、PTY 高级模式去留。
 
 ## 1. 背景与问题
 
@@ -221,22 +224,22 @@ SeMa 设置页（按当前引擎 / cliId 切换表单）
 
 部分 CLI 将模型绑在 session 上。换模型可能是「同会话更新」或「需新开一轮」——**每个 cliId** 在接入表写清，并在 UI 上给出明确反馈。
 
-### 5.5 接入表（实现前必填模板）
+### 5.5 接入表（2026-10-08 本机 `--help` / 命令实测稿）
 
-对每个 AI `cliId` 填一行（实测后定稿；下表为模板，非已验证结论）：
+实现代码：`headless/argv.rs`、`models.rs`、`config.rs`、`auth.rs`、`permission.rs`。未安装的引擎（kimi/codex/gemini）按公开 CLI 文档 + 既有 resume/trust 约定填写，标「待本机复测」。
 
-| cliId | headless 入口 | 流式 | session/续聊 | 列模型 | 切模型 | 审批档 | 鉴权类型 (A/B/C) | 登录命令/探测 | 配置代理（Key） | 工作区 trust | Win/Mac 差异 | 备注 |
-|-------|---------------|------|--------------|--------|--------|--------|------------------|---------------|-----------------|--------------|--------------|------|
-| claude | TBD | TBD | TBD | TBD | TBD | 1/2/3 | TBD | TBD | TBD | TBD | TBD | |
-| opencode | TBD | TBD | 已有 resume 可演进 | TBD | TBD | 1/2/3 | 常偏 A（举例） | TBD | TBD | TBD | TBD | |
-| kimi | TBD | TBD | TBD | TBD | TBD | 档1 可参考 yolo | TBD | TBD | TBD | TBD | TBD | |
-| cursor | TBD | TBD | TBD | TBD | TBD | 1/2/3 | **常偏 B** | TBD（如 login） | 通常无 | 已有 `--trust` | TBD | 账号登录 ≠ trust |
-| codex | TBD | TBD | TBD | TBD | TBD | 1/2/3 | TBD | TBD | TBD | TBD | TBD | |
-| gemini | TBD | TBD | TBD | TBD | TBD | 1/2/3 | TBD | TBD | TBD | 已有 `--skip-trust` | TBD | |
-| pi | TBD | TBD | TBD | TBD | TBD | 1/2/3 | TBD | TBD | TBD | TBD | TBD | |
-| terminal | N/A（非 Chat） | — | — | — | — | — | — | — | — | — | shell 路径 | 保持终端语义 |
+| cliId | headless 入口 | 流式 | session/续聊 | 列模型 | 切模型 | 审批档 | 鉴权类型 | 登录/探测 | 配置代理（Key） | 工作区 trust | Win/Mac 差异 | 备注 |
+|-------|---------------|------|--------------|--------|--------|--------|----------|-----------|-----------------|--------------|--------------|------|
+| claude | `-p --verbose --output-format stream-json --include-partial-messages`；auto 加 `--dangerously-skip-permissions`；auto 时 stdin=`null` | `stream_event`→`content_block_delta` → `chat:chunk` | `--resume` / `-c`；resume/ 模块 | **无 `--list-models`**：读 `~/.claude/settings.json` env 映射 + 别名 sonnet/opus/haiku/fable | `--model` | auto=档1；ask=`--permission-prompts host` + stdin 档2 | B OAuth | `auth login` / `auth status` | 否（账号） | 无 | CREATE_NO_WINDOW（Win） | 无 partials 则整段到齐才显示 |
+| opencode | `run --format json`；auto 加 `--auto` | JSONL 尽力抽 text | `-s` / `-c`；resume DB | `opencode models` | `-m provider/model` | auto=档1；ask=去掉 `--auto`（无稳定 host 协议） | A+B | `auth login` / `auth list` | **是**：`~/.config/opencode/opencode.json` provider.options | 无 | 配置路径 POSIX vs Win home | Key 脱敏展示 |
+| kimi | `-p`；auto 靠 `trust_args --yolo` | 纯文本 chunk（可能整段缓冲） | `--session` / `--continue` | 无稳定列命令 | `--model`（若支持） | 档1（yolo）；ask 去掉 yolo | A/环境变量偏多 | 无稳定 login | 打开 `~/.kimi-code` | 无 | 待本机复测 | 本机未装 |
+| cursor | `-p --output-format stream-json --stream-partial-output`；auto 加 `--force` | stream-json + partial | `--resume` / `--continue` | `cursor-agent models` | `--model` | auto=档1；ask=去掉 `--force` | **B** | `login` / `status` | 否 | `--trust` | 同左 | 账号 ≠ trust |
+| codex | `exec`；可选 resume 子命令 | 纯文本/缓冲 | resume 约定见 resume/ | `--help` 弱 | `--model` | 档1 为主 | B 偏多 | `login`（若有） | 打开 `~/.codex` | 无 | 待本机复测 | 本机未装 |
+| gemini | `-p`；auto `--yolo` | 纯文本 chunk | `--continue`（版本相关） | 弱 | `-m` | 档1；ask 去 yolo | B 偏多 | `auth` | 打开 `~/.gemini` | `--skip-trust` | 待本机复测 | 本机未装 |
+| pi | `-p`；auto `--approve` | 纯文本 chunk | `--session` / `--continue` | `--list-models` 表 | `--model` / settings 默认 | 档1；ask 去 approve | A（env Key） | 无 | settings 默认模型；Key 靠环境变量 | `--approve` 项目信任 | 同左 | 设置页可写 defaultProvider/Model |
+| terminal | N/A | — | — | — | — | — | — | — | — | — | shell 路径 | 非 Chat |
 
-「支持」的最低条线（建议）：能在 Chat UI 发一条消息并拿到可见回复 + 能关联/续聊（若该 CLI 本身支持 session）+ **未登录时可完成该引擎的鉴权引导（A 填 Key 或 B/C 走登录）**。模型切换、细粒度审批为增强项，可按 CLI 分期，但不得从范围名单中删除引擎。
+「支持」最低条线：Chat 发消息可见回复 + 能续则续 + 鉴权可引导。Ask 审批以 Claude host 协议为主；其它引擎 Ask 仅去掉自动批准 flag，可能需改回 Auto。
 
 ### 5.6 授权登录（以 Cursor 为例；模式适用于 Claude 等）
 

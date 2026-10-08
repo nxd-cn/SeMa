@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { tui } from "../api/tui";
+import { isChatCli, tui } from "../api/tui";
 import { DEFAULT_SPLIT_RATIO } from "../lib/panePreview";
 import { usePaneArtifacts } from "../lib/usePaneArtifacts";
 import { usePanePreview } from "../lib/usePanePreview";
 import { paneChromeText, toolLabelForCli, useAppStore } from "../store/appStore";
 import type { PaneState } from "../store/types";
+import ChatHost from "./ChatHost";
 import PaneArtifacts from "./PaneArtifacts";
 import { FolderIcon } from "./PaneArtifactsIcons";
 import PaneDocView, { PaneDocHeaderActions } from "./PaneDocView";
@@ -28,7 +29,10 @@ type Props = {
   /** Non-Enter keystrokes / paste — drop post-turn arm so typing echo does not pulse. */
   onUserComposing?: () => void;
   onCliSessionCleared?: () => void;
+  onCliSessionId?: (cliSessionId: string | null) => void;
+  onChatResumeConsumed?: () => void;
   onActivityData: (data: string) => void;
+  onActivitySettle?: () => void;
   onRegisterArtifactsIdle?: (
     paneId: string,
     refreshIdle: (() => void) | null
@@ -54,7 +58,10 @@ export default function Pane({
   onSubmitChat,
   onUserComposing,
   onCliSessionCleared,
+  onCliSessionId,
+  onChatResumeConsumed,
   onActivityData,
+  onActivitySettle,
   onRegisterArtifactsIdle,
   onContextMenu,
   onExit,
@@ -62,14 +69,20 @@ export default function Pane({
   flex,
 }: Props) {
   const tools = useAppStore((s) => s.tools);
+  const approvalMode = useAppStore((s) => s.approvalMode);
+  const cliModels = useAppStore((s) => s.cliModels);
   const toolLabel = toolLabelForCli(pane.cliId, tools);
   const chromeText = paneChromeText(pane.cliId, pane.cwd, tools);
+  const chatModel =
+    pane.chatModel ?? cliModels[pane.cliId] ?? "";
 
   // ↻ while resume offer is pending (canResume or layout-bound id); hide after dismiss.
   const showContinue =
     !pane.continueDismissed &&
     pane.cliId !== "terminal" &&
-    (!!pane.resumeOfferPending || !!pane.canResume);
+    (!!pane.resumeOfferPending ||
+      !!pane.canResume ||
+      !!pane.cliSessionId);
 
   const [branch, setBranch] = useState(BRANCH_FALLBACK);
   const artifacts = usePaneArtifacts(pane, visible);
@@ -258,18 +271,47 @@ export default function Pane({
             ) : null
           }
           terminal={
-            <TerminalHost
-              sessionId={pane.id}
-              cliId={pane.cliId}
-              visible={visible}
-              onSubmitChat={onSubmitChat}
-              onUserComposing={onUserComposing}
-              onCliSessionCleared={onCliSessionCleared}
-              onActivityData={onActivityData}
-              onContextMenu={onContextMenu}
-              onExit={onExit}
-              onTermReady={onTermReady}
-            />
+            isChatCli(pane.cliId) ? (
+              <ChatHost
+                paneId={pane.id}
+                cliId={pane.cliId}
+                cwd={pane.cwd}
+                cliSessionId={pane.cliSessionId}
+                resumeArmed={!!pane.chatResumeArmed}
+                visible={visible}
+                model={chatModel || undefined}
+                approvalMode={approvalMode}
+                onModelChange={(m) => {
+                  useAppStore.getState().updatePane(pane.id, { chatModel: m });
+                  const models = { ...cliModels };
+                  if (m.trim()) models[pane.cliId] = m.trim();
+                  else delete models[pane.cliId];
+                  useAppStore.getState().setCliModels(models);
+                  void tui.setPrefs({ cliModels: models });
+                }}
+                onSubmitChat={onSubmitChat}
+                onBusy={(busy) => {
+                  useAppStore.getState().updatePane(pane.id, { busy });
+                }}
+                onActivityData={onActivityData}
+                onActivitySettle={onActivitySettle}
+                onCliSessionHint={(id) => onCliSessionId?.(id)}
+                onResumeConsumed={() => onChatResumeConsumed?.()}
+              />
+            ) : (
+              <TerminalHost
+                sessionId={pane.id}
+                cliId={pane.cliId}
+                visible={visible}
+                onSubmitChat={onSubmitChat}
+                onUserComposing={onUserComposing}
+                onCliSessionCleared={onCliSessionCleared}
+                onActivityData={onActivityData}
+                onContextMenu={onContextMenu}
+                onExit={onExit}
+                onTermReady={onTermReady}
+              />
+            )
           }
         />
       </div>

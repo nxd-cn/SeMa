@@ -23,6 +23,7 @@ use crate::resume::{
     can_resume, follow_rotated_session, list_session_ids, pick_created_since, resume_args_for_id,
     resolve_resume_selection, ResumeOpts,
 };
+use crate::headless::{self, ApprovalMode, ChatSendOpts, ChatSendResult};
 use crate::spawn::spawn_target;
 use crate::state::AppState;
 use crate::trust_args::launch_args_for;
@@ -205,28 +206,37 @@ pub fn session_create(
     let id = new_session_id();
     let label = format!("{} · {}", tool.command, folder_name(&cwd));
 
-    let mut launch_extra: Vec<String> = Vec::new();
     let mut assigned: Option<String> = None;
     if cli_id == "pi" {
-        let sid = uuid::Uuid::new_v4().to_string();
-        launch_extra = vec!["--session-id".into(), sid.clone()];
-        assigned = Some(sid);
+        // Stable id for headless `--session` / future resume binding.
+        assigned = Some(uuid::Uuid::new_v4().to_string());
     }
 
-    let target = spawn_target(
-        &tool.path,
-        &tool.command,
-        &launch_args_for(&cli_id, &launch_extra),
-    );
-    pty::spawn_session(
-        app.clone(),
-        state.pty.clone(),
-        id.clone(),
-        &target,
-        &cwd,
-        120,
-        40,
-    )?;
+    // AI CLIs: Chat + headless (no PTY). Terminal keeps interactive shell PTY.
+    if cli_id == "terminal" || !headless::is_chat_cli(&cli_id) {
+        let launch_extra: Vec<String> = if cli_id == "pi" {
+            assigned
+                .as_ref()
+                .map(|sid| vec!["--session-id".into(), sid.clone()])
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        let target = spawn_target(
+            &tool.path,
+            &tool.command,
+            &launch_args_for(&cli_id, &launch_extra),
+        );
+        pty::spawn_session(
+            app.clone(),
+            state.pty.clone(),
+            id.clone(),
+            &target,
+            &cwd,
+            120,
+            40,
+        )?;
+    }
 
     let mut prefs = load_prefs(&app);
     prefs.last = Some(serde_json::json!({ "cwd": cwd, "cliId": cli_id }));
@@ -376,6 +386,17 @@ pub fn session_respawn(
         } else {
             claims.clear_resume(&id);
         }
+    }
+
+    // Chat / headless CLIs: bind session id only — no PTY to respawn.
+    if headless::is_chat_cli(&cli_id) {
+        let has_resume = selection.resolved_id.is_some() || !selection.args.is_empty();
+        return Ok(RespawnResult {
+            ok: has_resume || selection.used_bound,
+            used_bound: selection.used_bound,
+            cli_session_id: selection.resolved_id,
+            fallback: if has_resume { None } else { Some(true) },
+        });
     }
 
     state.pty.replacing.lock().insert(id.clone());
@@ -812,6 +833,193 @@ pub fn open_path(path: String) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+#[tauri::command]
+pub async fn chat_send(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    request_id: String,
+    cli_id: String,
+    cwd: String,
+    prompt: String,
+    session_id: Option<String>,
+    continue_last: Option<bool>,
+    model: Option<String>,
+    approval_mode: Option<String>,
+) -> Result<ChatSendResult, String> {
+    if !headless::is_chat_cli(&cli_id) {
+        return Err(format!("{cli_id} 不支持 Chat / headless"));
+    }
+    if request_id.trim().is_empty() {
+        return Err("requestId 为空".into());
+    }
+    let prefs = load_prefs(&app);
+    let model = model
+        .filter(|s| !s.trim().is_empty())
+        .or_else(|| prefs.cli_models.get(&cli_id).cloned());
+    let approval = ApprovalMode::parse(
+        approval_mode
+            .as_deref()
+            .unwrap_or(prefs.approval_mode.as_str()),
+    );
+    let tools = state.tools.lock().clone();
+    let tool = tool_for_id(&tools, &cli_id)
+        .cloned()
+        .or_else(|| detect_tool_by_id(&cli_id))
+        .ok_or_else(|| format!("未找到 CLI: {cli_id}"))?;
+    let opts = ChatSendOpts {
+        request_id,
+        cli_id,
+        cwd,
+        prompt,
+        session_id,
+        continue_last: continue_last.unwrap_or(false),
+        model,
+        approval,
+    };
+    // Need owned AppState pieces — pass Arc via try_state inside blocking is awkward;
+    // use app handle to re-fetch state.
+    let app2 = app.clone();
+    tokio::task::spawn_blocking(move || {
+        let st = app2
+            .try_state::<AppState>()
+            .ok_or_else(|| "AppState missing".to_string())?;
+        headless::chat_send(&app2, st.inner(), &tool, opts)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub fn chat_permission_reply(
+    state: State<'_, AppState>,
+    request_id: String,
+    permission_id: String,
+    allow: bool,
+) -> Result<(), String> {
+    headless::reply_permission(&state, &request_id, &permission_id, allow)
+}
+
+#[tauri::command]
+pub async fn chat_cancel(app: AppHandle, request_id: String) -> Result<(), String> {
+    // Off the async runtime — cancel itself is non-blocking, but keep the pattern
+    // consistent with chat_send so Stop never freezes the UI thread.
+    tokio::task::spawn_blocking(move || {
+        let st = app
+            .try_state::<AppState>()
+            .ok_or_else(|| "AppState missing".to_string())?;
+        headless::cancel_chat(st.inner(), &request_id)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Read prior user/assistant turns from on-disk CLI session (for Chat ↻ history).
+#[tauri::command]
+pub async fn chat_history(
+    cli_id: String,
+    cwd: String,
+    session_id: Option<String>,
+) -> Result<headless::ChatHistoryResult, String> {
+    if !headless::is_chat_cli(&cli_id) {
+        return Ok(headless::ChatHistoryResult::default());
+    }
+    let sid = session_id;
+    tokio::task::spawn_blocking(move || {
+        headless::load_chat_history(
+            &cli_id,
+            &cwd,
+            sid.as_deref(),
+            Some(home_dir().as_path()),
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn cli_models_list(
+    state: State<'_, AppState>,
+    cli_id: String,
+) -> Result<headless::ModelsResult, String> {
+    // Claude: settings + aliases only — never spawn CLI / PATH probe.
+    if cli_id == "claude" {
+        let synthetic = ToolInfo {
+            id: "claude".into(),
+            label: "Claude".into(),
+            command: "claude".into(),
+            path: "claude".into(),
+        };
+        return Ok(headless::list_models("claude", &synthetic));
+    }
+    let tools = state.tools.lock().clone();
+    let tool = tool_for_id(&tools, &cli_id)
+        .cloned()
+        .or_else(|| detect_tool_by_id(&cli_id))
+        .ok_or_else(|| format!("未找到 CLI: {cli_id}"))?;
+    tokio::task::spawn_blocking(move || headless::list_models(&cli_id, &tool))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn cli_config_get(cli_id: String) -> headless::CliConfigView {
+    headless::config_view(&cli_id)
+}
+
+#[tauri::command]
+pub fn cli_config_set_provider(
+    cli_id: String,
+    provider_id: String,
+    api_key: Option<String>,
+    base_url: Option<String>,
+    model_ids: Option<Vec<String>>,
+) -> Result<headless::CliConfigView, String> {
+    match cli_id.as_str() {
+        "opencode" => headless::set_opencode_provider(
+            &provider_id,
+            api_key.as_deref(),
+            base_url.as_deref(),
+            model_ids.as_deref(),
+        ),
+        "pi" => headless::set_pi_defaults(Some(&provider_id), model_ids.as_ref().and_then(|m| m.first()).map(|s| s.as_str())),
+        _ => Err(format!("{cli_id} 不支持 Key 配置表单")),
+    }
+}
+
+#[tauri::command]
+pub fn cli_config_open_dir(cli_id: String) -> Result<String, String> {
+    let dir = headless::open_config_dir(&cli_id)?;
+    // Reuse open_path semantics via returning path; frontend calls open_path.
+    Ok(dir)
+}
+
+#[tauri::command]
+pub async fn cli_auth_status(
+    state: State<'_, AppState>,
+    cli_id: String,
+) -> Result<headless::AuthStatus, String> {
+    // Never run CLI status on the async runtime thread — Node-based CLIs are slow.
+    let tools = state.tools.lock().clone();
+    let id = cli_id.clone();
+    tokio::task::spawn_blocking(move || {
+        let tool = tool_for_id(&tools, &id)
+            .cloned()
+            .or_else(|| detect_tool_by_id(&id));
+        headless::auth_status_for_tool(&id, tool.as_ref())
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn cli_auth_login(
+    state: State<'_, AppState>,
+    cli_id: String,
+    cwd: Option<String>,
+) -> Result<(), String> {
+    headless::spawn_login(&state, &cli_id, cwd.as_deref())
 }
 
 #[cfg(test)]

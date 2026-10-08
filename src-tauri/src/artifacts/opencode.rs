@@ -10,7 +10,11 @@ use super::types::ArtifactsResult;
 use super::filter_texts_since;
 use crate::platform::home_dir;
 
-fn opencode_data_root(home: Option<&Path>) -> PathBuf {
+pub(crate) fn opencode_db_path(home: Option<&Path>) -> PathBuf {
+    opencode_data_root(home).join("opencode.db")
+}
+
+pub(crate) fn opencode_data_root(home: Option<&Path>) -> PathBuf {
     let home = home.map(Path::to_path_buf).unwrap_or_else(home_dir);
     let mut candidates = vec![
         home.join(".local").join("share").join("opencode"),
